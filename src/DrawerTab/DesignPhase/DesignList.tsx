@@ -32,10 +32,63 @@ import Svg, { Path, Rect, Text as SvgText } from 'react-native-svg';
 import MultilineInput from '../../Components/MultilineInput';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useDesignStore, DesignFormData } from '../../Store/designStore';
+import { useProjectStore } from "../../Store/useProjectStore";
+import { useSelector } from 'react-redux';
+import {baseUrl} from '../../utils/Api';
 
 export default function DesignList() {
   const navigation = useNavigation();
-  type TaskItem = { id: string; title: string; date: string; progress: number };
+  
+  // Get token from Redux store
+  const token = useSelector((state: any) => state.auth.token);
+  
+  // Updated TaskItem type to match API response
+  type TaskItem = { 
+    id: string; 
+    title: string; 
+    date: string; 
+    progress: number;
+    task_id: string;
+    name: string;
+    completion_string_date: string;
+    logs?: any[];
+    images?: string[];
+    comment?: string;
+    links?: string;
+    status?: string;
+  };
+
+  type ApiResponseItem = {
+    _id: string;
+    step_id: string;
+    task_category: string;
+    order: number;
+    name: string;
+    tasks: Array<{
+      type: string;
+      task: string;
+      hold: boolean;
+      name: string;
+      duration: number;
+      task_order: number;
+      logs: any[];
+      global: boolean;
+      updatetime: string;
+      string_date: string;
+      date: string;
+      completion_string_date: string;
+      completion_date: string;
+      comment: string;
+      images: string[];
+      progress: number;
+      links: string;
+      status: string;
+      _id: string;
+      task_id: string;
+      sub_tasks: any[];
+    }>;
+  };
+
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [isEditTextModalVisible, setIsEditTextModalVisible] = useState<boolean>(false);
   const [isCameraVisible, setIsCameraVisible] = useState<boolean>(false);
@@ -53,6 +106,9 @@ export default function DesignList() {
   const [textElements, setTextElements] = useState<Array<{ id: string; text: string; x: number; y: number; color: string }>>([]);
   const [currentTextPosition, setCurrentTextPosition] = useState<{ x: number; y: number } | null>(null);
   const [showTextInputModal, setShowTextInputModal] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
   
   // New states for detail modal
   const [isDetailModalVisible, setIsDetailModalVisible] = useState<boolean>(false);
@@ -70,8 +126,9 @@ export default function DesignList() {
     formData: null
   });
 
-  // Zustand store
+  // Zustand stores
   const { designForms, addDesignForm, updateDesignForm, getFormByTaskId } = useDesignStore();
+  const { selectedProjectId, selectedStepId, designId } = useProjectStore();
 
   const cameraRef = useRef<Camera>(null);
   const drawingStageRef = useRef<View>(null);
@@ -86,6 +143,11 @@ export default function DesignList() {
   const [paths, setPaths] = useState<DrawPath[]>([]);
   const [currentPath, setCurrentPath] = useState<DrawPath | null>(null);
 
+  // API data state
+  const [apiData, setApiData] = useState<ApiResponseItem[]>([]);
+  const [taskItems, setTaskItems] = useState<TaskItem[]>([]);
+  const [sectionTitle, setSectionTitle] = useState<string>('');
+
   const getFileName = (fullPath: string) => {
     const parts = fullPath.split(/[\\\/]/);
     return parts[parts.length - 1] || '';
@@ -97,6 +159,238 @@ export default function DesignList() {
   const backDevice = useCameraDevice('back');
   const frontDevice = useCameraDevice('front');
   const device = cameraDevice === 'back' ? backDevice : frontDevice;
+
+  // Fetch data from API
+  const fetchDesignData = async () => {
+    if (!selectedProjectId || !selectedStepId || !designId) {
+      console.log('Missing required IDs:', {
+        selectedProjectId,
+        selectedStepId, 
+        designId
+      });
+      setError('Missing project, step, or design information');
+      setLoading(false);
+      return;
+    }
+
+    if (!token) {
+      console.log('No authentication token found');
+      setError('Authentication required. Please login again.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const API_URL = `${baseUrl}/projects/discipline_wise/${selectedProjectId}?step_type=${selectedStepId}&discipline=${designId}`;
+      
+      console.log('Fetching data from:', API_URL);
+      console.log('Using token:', token ? 'Token available' : 'No token');
+      
+      const response = await fetch(API_URL, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please login again.');
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data: ApiResponseItem[] = await response.json();
+      console.log('API Response:', data);
+      
+      setApiData(data);
+      
+      // Transform API data to TaskItem format
+      if (data && data.length > 0) {
+        const transformedTasks: TaskItem[] = [];
+        
+        data.forEach((category) => {
+          if (category.tasks && category.tasks.length > 0) {
+            category.tasks.forEach((task) => {
+              transformedTasks.push({
+                id: task.task_id || task._id,
+                title: task.name,
+                date: task.completion_string_date || 'No date',
+                progress: task.progress || 0,
+                task_id: task.task_id || task._id,
+                name: task.name,
+                completion_string_date: task.completion_string_date,
+                logs: task.logs,
+                images: task.images,
+                comment: task.comment,
+                links: task.links,
+                status: task.status
+              });
+            });
+          }
+        });
+        
+        setTaskItems(transformedTasks);
+        if (data[0]?.name) {
+          setSectionTitle(data[0].name);
+        }
+      }
+      
+    } catch (err) {
+      console.error('Error fetching design data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch data');
+      
+      // Fallback to mock data if API fails
+      setTaskItems([
+        {
+          id: '1',
+          title: '1.1 Structure Mark-Ups and Structural Requirements - Review Geotech Report',
+          date: '09/12/24',
+          progress: 0,
+          task_id: '1',
+          name: 'Structure Mark-Ups',
+          completion_string_date: '09/12/24'
+        },
+        {
+          id: '2',
+          title: '1.2 Civil & Stormwater Mark-Ups and Requirements: Request Council Layback',
+          date: '31/12/24',
+          progress: 25,
+          task_id: '2',
+          name: 'Civil & Stormwater',
+          completion_string_date: '31/12/24'
+        }
+      ]);
+      setSectionTitle('Design Tasks');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // PATCH API call to update tasks
+  const handleSaveChanges = async () => {
+    try {
+      setSaving(true);
+      
+      // Filter tasks that have form data submitted
+      const tasksWithFormData = taskItems.filter(task => {
+        const formData = getFormByTaskId(task.id);
+        return formData !== undefined;
+      });
+
+      if (tasksWithFormData.length === 0) {
+        Alert.alert('Info', 'No tasks with submitted data to update.');
+        setIsEditing(false);
+        return;
+      }
+
+      console.log(`Updating ${tasksWithFormData.length} tasks with PATCH API...`);
+
+      // Har task ke liye PATCH API call karen
+      const updatePromises = tasksWithFormData.map(async (task) => {
+        const formData = getFormByTaskId(task.id);
+        
+        if (!formData) {
+          console.log(`No form data found for task ${task.id}, skipping...`);
+          return null;
+        }
+
+        // Find step_id from API response
+        let stepId = '';
+        let taskType = 'task';
+        
+        // API data se step_id aur task details find karen
+        for (const category of apiData) {
+          const foundTask = category.tasks.find(t => 
+            t.task_id === task.id || t._id === task.id
+          );
+          if (foundTask) {
+            stepId = category.step_id;
+            break;
+          }
+        }
+
+        if (!stepId) {
+          console.warn(`Step ID not found for task ${task.id}`);
+          return null;
+        }
+
+        // Prepare images array for API
+        const imagesArray = [
+          ...formData.images.map(img => img.uri),
+          ...(formData.capturedPhoto ? [formData.capturedPhoto] : [])
+        ].filter(Boolean);
+
+        // Prepare request payload
+        const payload = {
+          step_id: stepId,
+          task_id: task.id,
+          type: taskType,
+          comment: formData.comments || '',
+          progress: task.progress,
+          images: imagesArray,
+          links: formData.links || ''
+        };
+
+        console.log('Sending PATCH request for task:', task.id, 'with payload:', payload);
+
+        // PATCH API call
+        const response = await fetch(
+          `${baseUrl}/projects/action-step2?id=${selectedProjectId}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status} for task ${task.id}`);
+        }
+
+        const result = await response.json();
+        console.log(`Task ${task.id} updated successfully:`, result);
+        return result;
+      });
+
+      // Sabhi API calls complete hone ka wait karen
+      const results = await Promise.all(updatePromises);
+      const successfulUpdates = results.filter(result => result !== null);
+      
+      setIsEditing(false);
+      
+      // Success message show karen
+      Alert.alert(
+        'Success', 
+        `${successfulUpdates.length} tasks updated successfully!`,
+        [{ text: 'OK' }]
+      );
+
+      // Refresh data
+      fetchDesignData();
+
+    } catch (error) {
+      console.error('Error updating tasks:', error);
+      Alert.alert(
+        'Error', 
+        'Failed to update tasks. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDesignData();
+  }, [selectedProjectId, selectedStepId, designId, token]);
 
   useEffect(() => {
     (async () => {
@@ -167,39 +461,6 @@ export default function DesignList() {
     return `${selectedItem.title} — ${formatTimestamp(new Date())}`;
   }, [selectedItem, isCameraVisible]);
 
-  const [data, setData] = useState<TaskItem[]>([
-    {
-      id: '1',
-      title: '1.1 Structure Mark-Ups and Structural Requirements - Review Geotech Report',
-      date: '09/12/24',
-      progress: 0,
-    },
-    {
-      id: '2',
-      title: '1.2 Civil & Stormwater Mark-Ups and Requirements: Request Council Layback',
-      date: '31/12/24',
-      progress: 25,
-    },
-    {
-      id: '3',
-      title: '1.3 Mechanical & Smoke Management Mark-Ups and Requirements',
-      date: '01/01/25',
-      progress: 50,
-    },
-    {
-      id: '4',
-      title: '1.4 Electrical Engineering and Detection & Alarm Mark-Ups and Requirements',
-      date: '01/01/25',
-      progress: 75,
-    },
-    {
-      id: '5',
-      title: '1.4 Electrical Engineering and Detection & Alarm Mark-Ups and Requirements',
-      date: '01/01/25',
-      progress: 100,
-    },
-  ]);
-
   const [modalForm, setModalForm] = useState<{
     details: string;
     comments: string;
@@ -210,13 +471,11 @@ export default function DesignList() {
     links: '',
   });
 
-  const handleSaveChanges = () => setIsEditing(false);
-
   const handleProgressChange = (itemId: string, newValue: number) => {
-    const updatedData = data.map(item =>
+    const updatedData = taskItems.map(item =>
       item.id === itemId ? { ...item, progress: newValue } : item,
     );
-    setData(updatedData);
+    setTaskItems(updatedData);
   };
 
   const getProgressBarColor = (progress: number) => {
@@ -326,10 +585,10 @@ export default function DesignList() {
   };
 
   const overallProgress = useMemo(() => {
-    if (data.length === 0) return 0;
-    const total = data.reduce((sum, t) => sum + t.progress, 0);
-    return (total / data.length).toFixed(1);
-  }, [data]);
+    if (taskItems.length === 0) return 0;
+    const total = taskItems.reduce((sum, t) => sum + t.progress, 0);
+    return (total / taskItems.length).toFixed(1);
+  }, [taskItems]);
 
   // Function to handle multiple image selection
   const handleDocumentIconPress = () => {
@@ -477,7 +736,7 @@ export default function DesignList() {
                 // Create a comprehensive data object
                 const downloadData = {
                   taskId: formData.taskId,
-                  taskTitle: data.find(item => item.id === formData.taskId)?.title || 'Unknown Task',
+                  taskTitle: taskItems.find(item => item.id === formData.taskId)?.title || 'Unknown Task',
                   submissionDate: formData.photoTimestamp || 'Unknown Date',
                   details: formData.details,
                   comments: formData.comments,
@@ -642,7 +901,7 @@ export default function DesignList() {
           ...updated[idx],
           points: [...updated[idx].points, { x: locationX, y: locationY }],
         };
-      }
+      }F
       return updated;
     });
   };
@@ -1115,7 +1374,7 @@ export default function DesignList() {
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? hp('5%') : 0}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             style={styles.keyboardAvoidingView}
           >
             <View style={styles.detailModalContent}>
@@ -1236,17 +1495,6 @@ export default function DesignList() {
                 >
                   <Text style={styles.closeButtonText}>Close</Text>
                 </TouchableOpacity>
-                
-                {/* Download All Data Button - Only show when there's submitted data */}
-                {/* {selectedFormData && (
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.downloadAllButton]}
-                    onPress={() => handleDownloadAllData(selectedFormData)}
-                  >
-                    <Ionicons name="download-outline" size={hp('2%')} color="#fff" />
-                    <Text style={styles.downloadAllButtonText}>Download All Data</Text>
-                  </TouchableOpacity>
-                )} */}
               </View>
             </View>
           </KeyboardAvoidingView>
@@ -1395,6 +1643,17 @@ export default function DesignList() {
     );
   };
 
+  // Loading state
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading design tasks...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollViewContent}>
@@ -1412,23 +1671,38 @@ export default function DesignList() {
 
         <View style={styles.completionHeader}>
           <Text style={styles.completionLabel}>Completion</Text>
-          <EditBtn
-            title={isEditing ? 'Save Changes' : 'Edit Tasks'}
-            bgColor="#1d9b20"
-            onPress={() => isEditing ? handleSaveChanges() : setIsEditing(true)}
-          />
+          <TouchableOpacity
+            style={[
+              styles.saveButton,
+              { backgroundColor: '#1d9b20' },
+              saving && styles.disabledButton
+            ]}
+            onPress={isEditing ? handleSaveChanges : () => setIsEditing(true)}
+            disabled={saving && isEditing}
+          >
+            <Text style={styles.saveButtonText}>
+              {isEditing ? (saving ? 'Saving...' : 'Save Changes') : 'Edit Tasks'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <Text style={styles.completionPercentage}>98.83%</Text>
-        <Text style={styles.sectionTitle}>1. Review & Feedback on 30% Architecture</Text>
+        <Text style={styles.completionPercentage}>{overallProgress}%</Text>
+        <Text style={styles.sectionTitle}>{sectionTitle || 'Design Tasks'}</Text>
 
-        <FlatList<TaskItem>
-          data={data}
-          keyExtractor={item => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          scrollEnabled={false}
-        />
+        {taskItems.length > 0 ? (
+          <FlatList<TaskItem>
+            data={taskItems}
+            keyExtractor={item => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            scrollEnabled={false}
+          />
+        ) : (
+          <View style={styles.noTasksContainer}>
+            <Ionicons name="document-outline" size={hp('8%')} color="#ccc" />
+            <Text style={styles.noTasksText}>No tasks available</Text>
+          </View>
+        )}
       </ScrollView>
       <EditTextModal />
       <CameraModal />
@@ -1727,16 +2001,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
-  // New styles for download all button
-  downloadAllButton: {
-    backgroundColor: '#007AFF',
-    flexDirection: 'row',
+  // New styles for save button
+  saveButton: {
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
+    borderRadius: wp('1.5%'),
     alignItems: 'center',
-    gap: wp('2%'),
+    justifyContent: 'center',
+    minWidth: wp('25%'),
   },
-  downloadAllButtonText: {
+  saveButtonText: {
     color: '#fff',
     fontWeight: 'bold',
+    fontSize: hp('1.8%'),
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   textInput: {
     borderWidth: 1,
@@ -2074,5 +2354,54 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
     marginBottom: hp('1.2%'),
+  },
+  // Loading and error styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: hp('2%'),
+    color: '#666',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: wp('10%'),
+  },
+  errorText: {
+    fontSize: hp('2.2%'),
+    color: '#ff6b6b',
+    fontWeight: 'bold',
+    marginTop: hp('2%'),
+  },
+  errorSubText: {
+    fontSize: hp('1.8%'),
+    color: '#666',
+    textAlign: 'center',
+    marginTop: hp('1%'),
+    marginBottom: hp('3%'),
+  },
+  retryButton: {
+    backgroundColor: '#1d9b20',
+    paddingHorizontal: wp('6%'),
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('2%'),
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: hp('1.8%'),
+    fontWeight: 'bold',
+  },
+  noTasksContainer: {
+    alignItems: 'center',
+    padding: hp('5%'),
+  },
+  noTasksText: {
+    fontSize: hp('2%'),
+    color: '#888',
+    marginTop: hp('2%'),
   },
 });

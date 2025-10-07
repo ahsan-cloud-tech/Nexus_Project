@@ -1,944 +1,3 @@
-// import React, { useState, useEffect } from 'react';
-// import {
-//   View,
-//   Text,
-//   StyleSheet,
-//   ScrollView,
-//   TouchableOpacity,
-//   FlatList,
-//   Modal,
-//   ActivityIndicator,
-//   Alert,
-// } from 'react-native';
-// import Header from '../../Components/Header';
-// import {
-//   heightPercentageToDP as hp,
-//   widthPercentageToDP as wp,
-// } from 'react-native-responsive-screen';
-// import DownloadBtn from '../../Components/DownloadBtn';
-// import { AnimatedCircularProgress } from 'react-native-circular-progress';
-// import Ionicons from '@react-native-vector-icons/ionicons';
-// import { useNavigation } from '@react-navigation/native';
-// import { useSelector } from 'react-redux';
-// import { baseUrl } from '../../utils/Api';
-// import { useProjectStore } from '../../Store/useProjectStore';
-
-// const CustomDropdown = ({ label, options, selectedValue, onSelect }) => {
-//   const [open, setOpen] = useState(false);
-
-//   return (
-//     <View style={{ marginBottom: hp('2.5%') }}>
-//       <View style={styles.dropdownRow}>
-//         <Text style={styles.projectsTitle}>{label}</Text>
-//         <TouchableOpacity
-//           style={[styles.dropdownButton, open && styles.dropdownButtonOpen]}
-//           onPress={() => setOpen(!open)}
-//           activeOpacity={0.7}
-//         >
-//           <Text
-//             style={[
-//               styles.dropdownText,
-//               !selectedValue && styles.placeholderText,
-//             ]}
-//           >
-//             {selectedValue
-//               ? options.find(opt => opt.value === selectedValue)?.label
-//               : `Select ${label}`}
-//           </Text>
-//           <Ionicons
-//             name={open ? 'chevron-up' : 'chevron-down'}
-//             size={20}
-//             color="#1d9b20"
-//             style={styles.dropdownIcon}
-//           />
-//         </TouchableOpacity>
-//       </View>
-
-//       {open && (
-//         <View style={styles.dropdownOptions}>
-//           {options.map(option => (
-//             <TouchableOpacity
-//               key={option.value}
-//               style={[
-//                 styles.optionItem,
-//                 selectedValue === option.value && styles.selectedOption,
-//               ]}
-//               onPress={() => {
-//                 onSelect(option.value);
-//                 setOpen(false);
-//               }}
-//               activeOpacity={0.7}
-//             >
-//               <Text
-//                 style={[
-//                   styles.optionText,
-//                   selectedValue === option.value && styles.selectedOptionText,
-//                 ]}
-//               >
-//                 {option.label}
-//               </Text>
-//             </TouchableOpacity>
-//           ))}
-//         </View>
-//       )}
-//     </View>
-//   );
-// };
-
-// const CurrentProjectsPhases = ({ route }) => {
-//   const [isModalVisible, setModalVisible] = useState(false);
-//   const [selectedBuilding, setSelectedBuilding] = useState(null);
-//   const [selectedCore, setSelectedCore] = useState(null);
-//   const [selectedLevel, setSelectedLevel] = useState(null);
-//   const [selectedUnit, setSelectedUnit] = useState(null);
-//   const [overallData, setOverallData] = useState(null);
-//   const [cardsData, setCardsData] = useState([]);
-//   const [loading, setLoading] = useState(true);
-//   const [cardsLoading, setCardsLoading] = useState(false);
-//   const [error, setError] = useState(null);
-//   const navigation = useNavigation();
-
-//   const token = useSelector(state => state.auth.token);
-//   const { 
-//     selectedProjectId, 
-//     setSelectedStepType,
-//     selectedStepType, 
-//     setProjectStepTypes,
-//     getStoreState
-//   } = useProjectStore();
-
-//   // ✅ Function to log current step type status
-//   const logStepTypeStatus = () => {
-//     console.log('🔍 ===== STEP TYPE STATUS CHECK =====');
-//     console.log('📁 Current Project ID:', selectedProjectId);
-    
-//     // Check useProjectStore
-//     const storeState = getStoreState();
-//     console.log('🏪 useProjectStore Status:');
-//     console.log('   - selectedStepType:', selectedStepType);
-//     console.log('   - Full store state:', storeState);
-    
-//     console.log('🔍 ===== END STATUS CHECK =====');
-//   };
-
-//   // Fetch cards data and save step_type to useProjectStore
-//   const fetchCardsData = async () => {
-//     try {
-//       setCardsLoading(true);
-
-//       if (!token || !selectedProjectId) {
-//         console.log('❌ Missing token or project ID for cards API');
-//         return;
-//       }
-
-//       console.log('==========================================');
-//       console.log('🃏 Fetching cards data...');
-//       console.log('📁 Project ID:', selectedProjectId);
-//       console.log('🌐 API URL:', `${baseUrl}/reports/project/cards2?projectId=${selectedProjectId}`);
-//       console.log('==========================================');
-
-//       const response = await fetch(
-//         `${baseUrl}/reports/project/cards2?projectId=${selectedProjectId}`,
-//         {
-//           method: 'GET',
-//           headers: {
-//             'Authorization': `Bearer ${token}`,
-//             'Content-Type': 'application/json',
-//             'Accept': 'application/json',
-//           },
-//         }
-//       );
-
-//       console.log('📡 Cards API Response status:', response.status);
-
-//       if (response.status === 401) {
-//         console.log('🔐 Cards API: Unauthorized');
-//         return;
-//       }
-
-//       if (!response.ok) {
-//         const errorText = await response.text();
-//         console.error('❌ Cards API Error:', errorText);
-//         return;
-//       }
-
-//       const result = await response.json();
-//       console.log('✅ Cards API Response:', JSON.stringify(result, null, 2));
-
-//       if (result && Array.isArray(result.data)) {
-//         setCardsData(result.data);
-        
-//         // ✅ Extract step_type values from the response
-//         const stepTypesData = result.data.map(item => ({
-//           step_type: item.step_type,
-//           _id: item._id,
-//           name: item.name,
-//           last_week_count: item.last_week_count,
-//           project_id: selectedProjectId,
-//           fetched_at: new Date().toISOString()
-//         }));
-        
-//         console.log('💾 ===== SAVING STEP TYPES TO useProjectStore =====');
-        
-//         // ✅ Save all step types data to useProjectStore
-//         setProjectStepTypes(stepTypesData);
-//         console.log('✅ Step Types data saved to useProjectStore:', stepTypesData.length, 'items');
-        
-//         // ✅ Save the FIRST step_type value to useProjectStore for immediate access
-//         if (stepTypesData.length > 0) {
-//           const firstStep = stepTypesData[0];
-//           setSelectedStepType(firstStep.step_type);
-//           console.log('✅ First step_type saved to useProjectStore:', {
-//             step_type: firstStep.step_type,
-//             _id: firstStep._id,
-//             name: firstStep.name
-//           });
-          
-//           // ✅ Verify the store was updated immediately
-//           const currentState = getStoreState();
-//           console.log('🔍 Store verification - selectedStepType:', currentState.selectedStepType);
-//         }
-
-//         // Log each step type for verification
-//         console.log('📋 Individual Step Types Found:');
-//         stepTypesData.forEach((stepType, index) => {
-//           console.log(`   ${index + 1}. ${stepType.name}: step_type="${stepType.step_type}", _id="${stepType._id}"`);
-//         });
-        
-//         console.log('💾 ===== STEP TYPES SAVE COMPLETE =====');
-        
-//         // ✅ Log final status
-//         setTimeout(() => {
-//           logStepTypeStatus();
-//         }, 1000);
-
-//       } else {
-//         console.log('⚠️ No cards data found in response');
-//         setCardsData([]);
-//       }
-
-//     } catch (error) {
-//       console.error('❌ Error fetching cards data:', error);
-//     } finally {
-//       setCardsLoading(false);
-//     }
-//   };
-
-//   // Fetch overall project data
-//   const fetchOverallData = async () => {
-//     try {
-//       setLoading(true);
-//       setError(null);
-
-//       if (!token) {
-//         setError('Authentication required');
-//         setLoading(false);
-//         return;
-//       }
-
-//       if (!selectedProjectId) {
-//         setError('No project selected');
-//         setLoading(false);
-//         return;
-//       }
-
-//       console.log('==========================================');
-//       console.log('🔍 Fetching overall project data...');
-//       console.log('📁 Project ID:', selectedProjectId);
-//       console.log('🔑 Token:', token.substring(0, 20) + '...');
-//       console.log('🌐 API URL:', `${baseUrl}/reports/project/overall?projectId=${selectedProjectId}`);
-//       console.log('==========================================');
-
-//       const response = await fetch(
-//         `${baseUrl}/reports/project/overall?projectId=${selectedProjectId}`,
-//         {
-//           method: 'GET',
-//           headers: {
-//             'Authorization': `Bearer ${token}`,
-//             'Content-Type': 'application/json',
-//             'Accept': 'application/json',
-//           },
-//         }
-//       );
-
-//       console.log('📡 Response status:', response.status);
-
-//       if (response.status === 401) {
-//         setError('Session expired. Please login again.');
-//         Alert.alert(
-//           'Session Expired',
-//           'Your session has expired. Please login again.',
-//           [
-//             {
-//               text: 'Login',
-//               onPress: () => navigation.navigate('Login')
-//             }
-//           ]
-//         );
-//         setLoading(false);
-//         return;
-//       }
-
-//       if (!response.ok) {
-//         const errorText = await response.text();
-//         console.error('❌ API Error Response:', errorText);
-//         throw new Error(`HTTP error! status: ${response.status}`);
-//       }
-
-//       const result = await response.json();
-//       console.log('✅ Overall API Response:', JSON.stringify(result, null, 2));
-
-//       if (result && result.data) {
-//         setOverallData(result.data);
-//         console.log('📊 Overall Completion:', result.data.completed_count || 0);
-//         console.log('📊 Last Week Count:', result.data.last_week_count || 0);
-        
-//         await fetchCardsData();
-//       } else {
-//         console.log('⚠️ No data found in response');
-//         setOverallData({
-//           completed_count: 0,
-//           last_week_count: 0
-//         });
-        
-//         await fetchCardsData();
-//       }
-
-//     } catch (error) {
-//       console.error('❌ Error fetching overall data:', error);
-//       setError('Failed to load project data. Please try again.');
-      
-//       setOverallData({
-//         completed_count: 0,
-//         last_week_count: 0
-//       });
-      
-//       await fetchCardsData();
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   useEffect(() => {
-//     console.log('🚀 CurrentProjectsPhases mounted - Starting data fetch...');
-//     logStepTypeStatus(); // Log initial status
-    
-//     if (token && selectedProjectId) {
-//       fetchOverallData();
-//     } else {
-//       setLoading(false);
-//       setError(!token ? 'Authentication required' : 'No project selected');
-//     }
-//   }, [token, selectedProjectId]);
-
-//   // Log when component updates
-//   useEffect(() => {
-//     if (!loading && !cardsLoading) {
-//       console.log('✅ Data loading complete - checking final status...');
-//       logStepTypeStatus();
-//     }
-//   }, [loading, cardsLoading]);
-
-//   // ✅ Add navigation focus listener to debug store state
-//   useEffect(() => {
-//     const unsubscribe = navigation.addListener('focus', () => {
-//       console.log('🔍 CurrentProjectsPhases focused - checking store state');
-//       logStepTypeStatus();
-//     });
-
-//     return unsubscribe;
-//   }, [navigation]);
-
-//   const sections = [
-//     {
-//       id: '1',
-//       title: 'Overall Completion',
-//       lastWeek: overallData ? `${overallData.completed_count || 0}%` : '0%',
-//       update: 'Completion to Date',
-//     },
-//     {
-//       id: '2',
-//       title: 'Overall Productivity',
-//       lastWeek: overallData ? `${overallData.last_week_count || 0}%` : '0%',
-//       update: 'Last Week Productivity',
-//     },
-//   ];
-
-//   const getVerticalData = () => {
-//     if (cardsData.length > 0) {
-//       return cardsData.map((item, index) => ({
-//         id: item.step_id || `card-${index}`,
-//         title: item.name || 'Unnamed Phase',
-//         lastWeek: item.last_week_count ? `${item.last_week_count}%` : '0%',
-//         redProgress: 0,
-//         greenProgress: item.last_week_count ? Math.min(Math.max(parseFloat(item.last_week_count), 0), 100) : 0,
-//         step_type: item.step_type,
-//         step_id: item.step_id,
-//         originalData: item
-//       }));
-//     }
-
-//     return [
-//       {
-//         id: '1',
-//         title: 'Design',
-//         lastWeek: '7.83%',
-//         redProgress: 90,
-//         greenProgress: 70,
-//       },
-//       {
-//         id: '2',
-//         title: 'Structure',
-//         lastWeek: '7.83%',
-//         redProgress: 80,
-//         greenProgress: 60,
-//       },
-//       {
-//         id: '3',
-//         title: 'Site Setup',
-//         lastWeek: '7.83%',
-//         redProgress: 0,
-//         greenProgress: 5,
-//       },
-//       {
-//         id: '4',
-//         title: 'Sub Structure',
-//         lastWeek: '7.83%',
-//         redProgress: 0,
-//         greenProgress: 5,
-//       },
-//       {
-//         id: '5',
-//         title: 'Finishes',
-//         lastWeek: '7.83%',
-//         redProgress: 0,
-//         greenProgress: 5,
-//       },
-//       {
-//         id: '6',
-//         title: 'Handover',
-//         lastWeek: '7.83%',
-//         redProgress: 0,
-//         greenProgress: 5,
-//       },
-//     ];
-//   };
-
-//   const data = getVerticalData();
-
-//   const renderHorizontalItem = ({ item }) => (
-//     <View style={styles.cardContainer}>
-//       <View style={styles.horizontalCard}>
-//         <Text style={styles.cardTitle}>{item.title}</Text>
-//         <View style={styles.percentageContainer}>
-//           <Text style={styles.percentageText}>{item.lastWeek}</Text>
-//           <Text style={styles.updateText}>{item.update}</Text>
-//         </View>
-//       </View>
-//     </View>
-//   );
-
-//   const renderVerticalItem = ({ item }) => (
-//     <TouchableOpacity
-//       style={styles.verticalCard}
-//       onPress={() => {
-//         console.log('📍 ===== PHASE CARD PRESSED =====');
-//         console.log('📋 Selected Phase:', {
-//           title: item.title,
-//           step_type: item.step_type,
-//         });
-
-//         // ✅ Save ONLY step_type to useProjectStore when pressed
-//         if (item.step_type) {
-//           // Save to useProjectStore
-//           setSelectedStepType(item.step_type);
-//           console.log('✅ Step_type saved to useProjectStore:', {
-//             step_type: item.step_type,
-//             name: item.title
-//           });
-//           const currentState = getStoreState();
-//           console.log('🔍 Store after saving:', currentState.selectedStepType);
-          
-//           // Log updated status
-//           setTimeout(() => {
-//             logStepTypeStatus();
-//           }, 500);
-//         } else {
-//           console.log('❌ Missing step_type in item:', item);
-//         }
-
-//         console.log('📍 ===== NAVIGATING =====');
-        
-//         if (item.title === 'Design' || item.step_type === 'design') {
-//           console.log('🎯 Navigating to DesignTask...');
-//           // ✅ Pass the step_type as a parameter to ensure it's available
-//           navigation.navigate('DesignTask', { 
-//             project: item,
-//             projectId: selectedProjectId,
-//             step_type: item.step_type // Pass as parameter too
-//           });
-//         } else if (item.title === 'Finishes' || item.step_type === 'finishes') {
-//           console.log('🎯 Opening Finishes modal...');
-//           setModalVisible(true);
-//         } else {
-//           console.log('📍 Other phase pressed - no specific navigation');
-//         }
-//       }}
-//     >
-//       <View style={styles.leftContainer}>
-//         <Text style={styles.projectTitle}>{item.title}</Text>
-//         <Text style={styles.legendText}>Last Week: {item.lastWeek}</Text>
-//         {item.step_type && (
-//           <Text style={styles.stepTypeText}>Type ID: {item.step_type}</Text>
-//         )}
-//       </View>
-//       <View style={styles.progressContainer}>
-//         <AnimatedCircularProgress
-//           size={wp('15%')}
-//           width={6}
-//           fill={item.redProgress}
-//           tintColor="red"
-//           backgroundColor="#e0e0e0"
-//           rotation={0}
-//         />
-//         <AnimatedCircularProgress
-//           size={wp('12%')}
-//           width={7}
-//           fill={item.greenProgress}
-//           tintColor="green"
-//           backgroundColor="#e0e0e0"
-//           rotation={0}
-//           style={styles.innerProgress}
-//         >
-//           {() => <Text style={styles.progressText}>{item.greenProgress}%</Text>}
-//         </AnimatedCircularProgress>
-//       </View>
-//     </TouchableOpacity>
-//   );
-
-//   if (loading) {
-//     return (
-//       <View style={styles.container}>
-//         <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: wp('5%') }}>
-//           <Text style={styles.title}>Oran Park Resi 3</Text>
-//           <TouchableOpacity
-//             style={styles.iconContainer}
-//             onPress={() => navigation.goBack()}
-//           >
-//             <Ionicons name="arrow-back" size={hp('2.8%')} color="#fff" />
-//           </TouchableOpacity>
-//         </View>
-//         <View style={styles.loadingContainer}>
-//           <ActivityIndicator size="large" color="#1d9b20" />
-//           <Text style={styles.loadingText}>Loading project data...</Text>
-//           {cardsLoading && (
-//             <Text style={styles.loadingSubText}>Fetching phase details...</Text>
-//           )}
-//         </View>
-//       </View>
-//     );
-//   }
-
-//   if (error && !overallData) {
-//     return (
-//       <View style={styles.container}>
-//         <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: wp('5%') }}>
-//           <Text style={styles.title}>Oran Park Resi 3</Text>
-//           <TouchableOpacity
-//             style={styles.iconContainer}
-//             onPress={() => navigation.goBack()}
-//           >
-//             <Ionicons name="arrow-back" size={hp('2.8%')} color="#fff" />
-//           </TouchableOpacity>
-//         </View>
-//         <View style={styles.errorContainer}>
-//           <Ionicons name="alert-circle-outline" size={60} color="#ff6b6b" />
-//           <Text style={styles.errorText}>{error}</Text>
-//           <TouchableOpacity 
-//             style={styles.retryButton}
-//             onPress={fetchOverallData}
-//           >
-//             <Ionicons name="refresh" size={20} color="#fff" />
-//             <Text style={styles.retryButtonText}>Retry</Text>
-//           </TouchableOpacity>
-//         </View>
-//       </View>
-//     );
-//   }
-
-//   return (
-//     <View style={styles.container}>
-//       <Modal
-//         visible={isModalVisible}
-//         animationType="slide"
-//         transparent={true}
-//         onRequestClose={() => setModalVisible(false)}
-//       >
-//         <View style={styles.modalOverlay}>
-//           <View style={styles.modalBox}>
-//             <Text style={{ fontSize: 18, marginBottom: 10 }}>Finishes</Text>
-//             <CustomDropdown
-//               label="Building"
-//               options={[
-//                 { label: 'A1', value: 'A' },
-//                 { label: 'A2', value: 'B' },
-//                 { label: 'A3', value: 'C' },
-//               ]}
-//               selectedValue={selectedBuilding}
-//               onSelect={setSelectedBuilding}
-//             />
-
-//             <CustomDropdown
-//               label="Core"
-//               options={[
-//                 { label: 'Core 1', value: 'C1' },
-//                 { label: 'Core 2', value: 'C2' },
-//               ]}
-//               selectedValue={selectedCore}
-//               onSelect={setSelectedCore}
-//             />
-
-//             <CustomDropdown
-//               label="Level"
-//               options={[
-//                 { label: 'Level 1', value: 'L1' },
-//                 { label: 'Level 2', value: 'L2' },
-//               ]}
-//               selectedValue={selectedLevel}
-//               onSelect={setSelectedLevel}
-//             />
-
-//             <CustomDropdown
-//               label="Unit"
-//               options={[
-//                 { label: 'Unit 1', value: 'U101' },
-//                 { label: 'Unit 2', value: 'U102' },
-//               ]}
-//               selectedValue={selectedUnit}
-//               onSelect={setSelectedUnit}
-//             />
-
-//             <View style={styles.modalButtonRow}>
-//               <TouchableOpacity
-//                 style={[styles.modalButton, { backgroundColor: '#fff' }]}
-//                 onPress={() => {
-//                   setModalVisible(false);
-//                 }}
-//               >
-//                 <Text style={[styles.modalButtonText, { color: 'red' }]}>
-//                   Cancel
-//                 </Text>
-//               </TouchableOpacity>
-
-//               <TouchableOpacity
-//                 style={[styles.modalButton, { backgroundColor: '#5cb85c' }]}
-//                 onPress={() => {
-//                   if (selectedBuilding && selectedCore) {
-//                     setModalVisible(false);
-//                     navigation.navigate('CoreTask', {
-//                       building: selectedBuilding,
-//                       core: selectedCore,
-//                       level: selectedLevel,
-//                       unit: selectedUnit,
-//                       projectId: selectedProjectId,
-//                     });
-//                   } else {
-//                     alert(
-//                       'Please select both Building and Core before proceeding.',
-//                     );
-//                   }
-//                 }}
-//               >
-//                 <Text style={[styles.modalButtonText, { color: '#fff' }]}>
-//                   Confirm
-//                 </Text>
-//               </TouchableOpacity>
-//             </View>
-//           </View>
-//         </View>
-//       </Modal>
-
-//       <ScrollView style={styles.scrollView}>
-//         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-//           <Text style={styles.title}>Oran Park Resi 3</Text>
-//           <TouchableOpacity
-//             style={styles.iconContainer}
-//             onPress={() => navigation.goBack()}
-//           >
-//             <Ionicons name="arrow-back" size={hp('2.8%')} color="#fff" />
-//           </TouchableOpacity>
-//         </View>
-
-//         <DownloadBtn title="Download Report" bgColor="#1d9b20" />
-
-//         <FlatList
-//           horizontal
-//           showsHorizontalScrollIndicator={false}
-//           data={sections}
-//           renderItem={renderHorizontalItem}
-//           keyExtractor={item => item.id}
-//           contentContainerStyle={styles.horizontalFlatListContent}
-//           style={{ marginVertical: hp('2%') }}
-//         />
-
-//         <FlatList
-//           numColumns={2}
-//           scrollEnabled={false}
-//           showsVerticalScrollIndicator={false}
-//           data={data}
-//           renderItem={renderVerticalItem}
-//           keyExtractor={item => item.id}
-//           contentContainerStyle={styles.verticalFlatListContent}
-//           columnWrapperStyle={styles.columnWrapper}
-//         />
-
-//         {/* Debug Section */}
-//         <View style={styles.debugContainer}>
-//           <Text style={styles.debugTitle}>🔍 Step Type Storage Status</Text>
-//           <Text style={styles.debugText}>Project ID: {selectedProjectId}</Text>
-//           <Text style={styles.debugText}>
-//             Current Step Type: {selectedStepType || 'Not set'}
-//           </Text>
-//           <Text style={styles.debugText}>
-//             Completion: {overallData?.completed_count || 0}%
-//           </Text>
-//           <Text style={styles.debugText}>
-//             Productivity: {overallData?.last_week_count || 0}%
-//           </Text>
-          
-//           <TouchableOpacity 
-//             style={styles.statusButton}
-//             onPress={logStepTypeStatus}
-//           >
-//             <Text style={styles.statusButtonText}>🔄 Check Step Type Status</Text>
-//           </TouchableOpacity>
-//         </View>
-//       </ScrollView>
-//     </View>
-//   );
-// };
-
-// const styles = StyleSheet.create({
-//   dropdownRow: {
-//     flexDirection: 'row',
-//     alignItems: 'center',
-//     justifyContent: 'space-between',
-//   },
-//   placeholderText: { color: '#999' },
-//   dropdownText: {
-//     fontSize: hp(1.8),
-//     color: '#333',
-//   },
-//   projectsTitle: {
-//     fontSize: hp(2),
-//     fontWeight: '600',
-//     color: '#333',
-//     marginBottom: 5,
-//   },
-//   dropdownButton: {
-//     flexDirection: 'row',
-//     alignItems: 'center',
-//     justifyContent: 'space-between',
-//     backgroundColor: '#f8f8f8',
-//     paddingHorizontal: wp('4%'),
-//     paddingVertical: hp('1.5%'),
-//     borderRadius: wp('3%'),
-//     borderWidth: 1.5,
-//     borderColor: '#e0e0e0',
-//     minWidth: wp('45%'),
-//   },
-//   dropdownButtonOpen: {
-//     borderColor: '#1d9b20',
-//     backgroundColor: '#f0f8f0',
-//   },
-//   dropdownIcon: { marginLeft: wp('2%') },
-//   dropdownOptions: {
-//     marginTop: hp('1%'),
-//     backgroundColor: '#fff',
-//     borderRadius: wp('3%'),
-//     borderWidth: 1.5,
-//     borderColor: '#D3D3D3',
-//     shadowColor: '#000',
-//     shadowOffset: { width: 0, height: 4 },
-//     shadowOpacity: 0.15,
-//     shadowRadius: 8,
-//     overflow: 'hidden',
-//   },
-//   optionItem: {
-//     paddingVertical: hp('1.8%'),
-//     paddingHorizontal: wp('4%'),
-//     borderBottomWidth: 1,
-//     borderBottomColor: '#f0f0f0',
-//   },
-//   selectedOption: { backgroundColor: '#f0f8f0' },
-//   optionText: { fontSize: hp(1.8), color: '#333' },
-//   selectedOptionText: { fontWeight: '600', color: '#1d9b20' },
-//   modalButtonRow: {
-//     flexDirection: 'row',
-//     alignSelf: 'flex-end',
-//     gap: hp('2%'),
-//     marginTop: hp('2%'),
-//   },
-//   modalButton: {
-//     paddingVertical: hp('1%'),
-//     paddingHorizontal: wp('5%'),
-//     borderRadius: 8,
-//   },
-//   modalButtonText: {
-//     fontSize: hp('1.8%'),
-//     fontWeight: '600',
-//     textAlign: 'center',
-//   },
-//   iconContainer: {
-//     backgroundColor: 'gray',
-//     padding: wp('1%'),
-//     borderRadius: wp('5%'),
-//   },
-//   container: { flex: 1, backgroundColor: '#f8f9fa' },
-//   scrollView: { flex: 1, padding: wp('5%') },
-//   title: { fontSize: hp('2.5%'), fontWeight: 'bold', color: '#333' },
-//   modalOverlay: {
-//     flex: 1,
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//     backgroundColor: 'rgba(0,0,0,0.5)',
-//   },
-//   modalBox: {
-//     width: wp('85%'),
-//     padding: 20,
-//     backgroundColor: 'white',
-//     borderRadius: 10,
-//   },
-//   horizontalFlatListContent: { paddingHorizontal: wp('2%') },
-//   cardContainer: { width: wp('42%'), marginHorizontal: wp('1%') },
-//   horizontalCard: {
-//     backgroundColor: '#fff',
-//     padding: wp('1%'),
-//     borderRadius: 12,
-//     alignItems: 'center',
-//     justifyContent: 'center',
-//     height: hp('16%'),
-//   },
-//   cardTitle: { fontSize: hp('1.8%'), fontWeight: '600', color: '#333' },
-//   percentageContainer: { alignItems: 'center' },
-//   percentageText: { fontSize: hp('3%'), fontWeight: 'bold', color: '#1d9b20' },
-//   updateText: { fontSize: hp('1.5%'), color: '#666', marginTop: hp('0.5%') },
-//   verticalFlatListContent: {
-//     paddingHorizontal: wp('1%'),
-//     paddingBottom: hp('2%'),
-//   },
-//   columnWrapper: { justifyContent: 'space-between', paddingBottom: wp('1.3%') },
-//   verticalCard: {
-//     backgroundColor: '#fff',
-//     padding: wp('3%'),
-//     marginVertical: hp('0.5%'),
-//     marginHorizontal: wp('1%'),
-//     borderRadius: 12,
-//     width: wp('43%'),
-//     elevation: 3,
-//     minHeight: hp('10%'),
-//   },
-//   leftContainer: { flex: 1, marginRight: wp('2%'), justifyContent: 'center' },
-//   projectTitle: { fontSize: hp('1.8%'), fontWeight: 'bold', color: '#333' },
-//   legendText: { fontSize: hp('1.5%'), color: '#666' },
-//   stepTypeText: { fontSize: hp('1.2%'), color: '#999', fontStyle: 'italic' },
-//   progressContainer: {
-//     position: 'relative',
-//     width: wp('15%'),
-//     height: wp('15%'),
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//     alignSelf: 'center',
-//     marginTop: hp('1.5%'),
-//   },
-//   innerProgress: { position: 'absolute' },
-//   progressText: { fontSize: hp('1.3%'), fontWeight: 'bold', color: 'green' },
-//   loadingContainer: {
-//     flex: 1,
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//     padding: wp('10%'),
-//   },
-//   loadingText: {
-//     marginTop: hp('2%'),
-//     fontSize: hp('2%'),
-//     color: '#666',
-//     textAlign: 'center',
-//   },
-//   loadingSubText: {
-//     marginTop: hp('1%'),
-//     fontSize: hp('1.5%'),
-//     color: '#999',
-//     textAlign: 'center',
-//   },
-//   errorContainer: {
-//     flex: 1,
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//     padding: wp('10%'),
-//   },
-//   errorText: {
-//     fontSize: hp('2%'),
-//     color: '#ff6b6b',
-//     textAlign: 'center',
-//     marginTop: hp('2%'),
-//     marginBottom: hp('3%'),
-//   },
-//   retryButton: {
-//     flexDirection: 'row',
-//     alignItems: 'center',
-//     backgroundColor: '#1d9b20',
-//     paddingHorizontal: wp('6%'),
-//     paddingVertical: hp('1.5%'),
-//     borderRadius: 8,
-//     gap: 8,
-//   },
-//   retryButtonText: {
-//     color: '#fff',
-//     fontSize: hp('1.8%'),
-//     fontWeight: '600',
-//   },
-//   debugContainer: {
-//     backgroundColor: '#f0f0f0',
-//     padding: wp('3%'),
-//     borderRadius: 8,
-//     marginTop: hp('2%'),
-//   },
-//   debugTitle: {
-//     fontSize: hp('1.8%'),
-//     fontWeight: 'bold',
-//     color: '#333',
-//     marginBottom: hp('1%'),
-//   },
-//   debugText: {
-//     fontSize: hp('1.5%'),
-//     color: '#666',
-//     fontFamily: 'monospace',
-//     marginBottom: hp('0.5%'),
-//   },
-//   debugCardText: {
-//     fontSize: hp('1.3%'),
-//     color: '#666',
-//     fontFamily: 'monospace',
-//     marginLeft: wp('2%'),
-//     marginBottom: hp('0.3%'),
-//   },
-//   statusButton: {
-//     backgroundColor: '#1d9b20',
-//     padding: wp('3%'),
-//     borderRadius: 8,
-//     alignItems: 'center',
-//     marginVertical: hp('1%'),
-//   },
-//   statusButtonText: {
-//     color: '#fff',
-//     fontSize: hp('1.6%'),
-//     fontWeight: '600',
-//   },
-// });
-
-// export default CurrentProjectsPhases;
-
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -1338,7 +397,7 @@ const CurrentProjectsPhases = ({ route }) => {
         greenProgress: item.last_week_count ? Math.min(Math.max(parseFloat(item.last_week_count), 0), 100) : 0,
         step_type: item.step_type,
         step_id: item.step_id || item._id,
-        type: item.type,
+        type: item.type || 'step', // ✅ Default type set karein agar nahi hai toh
         originalData: item
       }));
     }
@@ -1374,7 +433,6 @@ const CurrentProjectsPhases = ({ route }) => {
 
         // ✅ Save step_type AND step_id to useProjectStore when pressed
         if (item.step_type || item.step_id) {
-          // Save to useProjectStore
           if (item.step_type) {
             setSelectedStepType(item.step_type);
             console.log('✅ step_type saved to useProjectStore:', item.step_type);
@@ -1399,32 +457,68 @@ const CurrentProjectsPhases = ({ route }) => {
           console.log('❌ Missing step_type and step_id in item:', item);
         }
 
-        console.log('📍 ===== NAVIGATING =====');
+        console.log('📍 ===== NAVIGATION BASED ON TYPE =====');
         
-        if (item.title === 'Design' || item.type === 'step' && item.step_type) {
-          console.log('🎯 Navigating to DesignTask...');
+        // ✅ MAIN CONDITION: Type ke hisaab se navigate karein
+        if (item.type === "step") {
+          console.log('🎯 Type is "step" - Navigating to DesignTask...');
           navigation.navigate('DesignTask', { 
             project: item,
             projectId: selectedProjectId,
             step_type: item.step_type,
             step_id: item.step_id
           });
-        } else if (item.title === 'Finishes' || item.type === 'multi-step') {
-          console.log('🎯 Opening Finishes modal...');
+        } 
+        // ✅ CONDITION 2: Agar type "multi-step" hai toh modal open karein
+        else if (item.type === "multi-step") {
+          console.log('🎯 Type is "multi-step" - Opening modal...');
           setModalVisible(true);
-        } else {
-          console.log('📍 Other phase pressed - no specific navigation');
+        }
+        // ✅ CONDITION 3: Agar type nahi hai ya koi aur type hai
+        else {
+          console.log('📍 Unknown or missing type:', item.type);
+          // Fallback: Agar type nahi hai lekin title "Design" hai
+          if (item.title === 'Design' && item.step_type) {
+            console.log('🎯 Fallback: Navigating to DesignTask based on title...');
+            navigation.navigate('DesignTask', { 
+              project: item,
+              projectId: selectedProjectId,
+              step_type: item.step_type,
+              step_id: item.step_id
+            });
+          } 
+          // Fallback: Agar type nahi hai lekin title "Finishes" hai
+          else if (item.title === 'Finishes') {
+            console.log('🎯 Fallback: Opening modal based on title...');
+            setModalVisible(true);
+          }
+          else {
+            console.log('📍 No specific navigation for this item');
+          }
         }
       }}
     >
       <View style={styles.leftContainer}>
         <Text style={styles.projectTitle}>{item.title}</Text>
         <Text style={styles.legendText}>Last Week: {item.lastWeek}</Text>
+        
+        {/* ✅ Type display karein UI mein bhi */}
+        <View style={styles.typeContainer}>
+          <Text style={[
+            styles.typeText,
+            item.type === "step" ? styles.stepType : 
+            item.type === "multi-step" ? styles.multiStepType : 
+            styles.unknownType
+          ]}>
+            Type: {item.type || 'Not specified'}
+          </Text>
+        </View>
+        
         {item.step_type && (
-          <Text style={styles.stepTypeText}>Type: {item.step_type}</Text>
+          <Text style={styles.stepTypeText}>Step Type: {item.step_type}</Text>
         )}
         {item.step_id && (
-          <Text style={styles.stepIdText}>ID: {item.step_id}</Text>
+          <Text style={styles.stepIdText}>Step ID: {item.step_id}</Text>
         )}
       </View>
       <View style={styles.progressContainer}>
@@ -1626,31 +720,7 @@ const CurrentProjectsPhases = ({ route }) => {
           contentContainerStyle={styles.verticalFlatListContent}
           columnWrapperStyle={styles.columnWrapper}
         />
-
-        {/* Debug Section */}
-        <View style={styles.debugContainer}>
-          <Text style={styles.debugTitle}>🔍 Storage Status</Text>
-          <Text style={styles.debugText}>Project ID: {selectedProjectId}</Text>
-          <Text style={styles.debugText}>
-            Step Type: {selectedStepType || 'Not set'}
-          </Text>
-          <Text style={styles.debugText}>
-            Step ID: {selectedStepId || 'Not set'}
-          </Text>
-          <Text style={styles.debugText}>
-            Completion: {overallData?.completed_count || 0}%
-          </Text>
-          <Text style={styles.debugText}>
-            Productivity: {overallData?.last_week_count || 0}%
-          </Text>
-          
-          <TouchableOpacity 
-            style={styles.statusButton}
-            onPress={logStatus}
-          >
-            <Text style={styles.statusButtonText}>🔄 Check Status</Text>
-          </TouchableOpacity>
-        </View>
+       
       </ScrollView>
     </View>
   );
@@ -1779,8 +849,38 @@ const styles = StyleSheet.create({
   leftContainer: { flex: 1, marginRight: wp('2%'), justifyContent: 'center' },
   projectTitle: { fontSize: hp('1.8%'), fontWeight: 'bold', color: '#333' },
   legendText: { fontSize: hp('1.5%'), color: '#666' },
-  stepTypeText: { fontSize: hp('1.2%'), color: '#999', fontStyle: 'italic', marginTop: 2 },
-  stepIdText: { fontSize: hp('1.2%'), color: '#666', fontStyle: 'italic', marginTop: 2 },
+  
+  // ✅ New styles for type display
+  typeContainer: {
+    marginTop: 4,
+  },
+  typeText: {
+    fontSize: hp('1.2%'),
+    fontWeight: '600',
+    fontStyle: 'italic',
+  },
+  stepType: {
+    color: '#1d9b20', // Green for step type
+  },
+  multiStepType: {
+    color: '#ff9800', // Orange for multi-step type
+  },
+  unknownType: {
+    color: '#757575', // Gray for unknown type
+  },
+  
+  stepTypeText: { 
+    fontSize: hp('1.2%'), 
+    color: '#999', 
+    fontStyle: 'italic', 
+    marginTop: 2 
+  },
+  stepIdText: { 
+    fontSize: hp('1.2%'), 
+    color: '#666', 
+    fontStyle: 'italic', 
+    marginTop: 2 
+  },
   progressContainer: {
     position: 'relative',
     width: wp('15%'),

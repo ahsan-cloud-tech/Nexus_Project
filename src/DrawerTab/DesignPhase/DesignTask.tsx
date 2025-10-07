@@ -20,61 +20,66 @@ import { baseUrl } from '../../utils/Api';
 export default function DesignTask({ route }) {
   const navigation = useNavigation();
   
-  // Get data from useProjectStore (where step_type is saved)
   const { 
     selectedProjectId, 
     selectedStepType,
-    getStoreState
+    selectedStepId,
+    getStoreState,
+    setDesignId // Add this function to your Zustand store
   } = useProjectStore();
   
-  // Also get step_type from route params as fallback
   const routeStepType = route.params?.step_type;
+  const routeStepId = route.params?.step_id;
   
   const token = useSelector(state => state.auth.token);
   
-  const [sections, setSections] = useState([
-    {
-      id: '1',
-      title: 'Productivity',
-      percentage: '0%',
-      subtitle: 'Last Weeks Productivity',
-      timestamp: 'Loading...',
-      lastWeekData: '0%',
-    },
-    {
-      id: '2',
-      title: 'Completion',
-      percentage: '0%',
-      subtitle: '',
-      timestamp: 'Loading...',
-    },
-  ]);
-  
+  const [sections, setSections] = useState(null);
+  const [designStages, setDesignStages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [stagesLoading, setStagesLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [stepTypeName, setStepTypeName] = useState('Design'); // State for dynamic step type name
 
-  // Use stepType from store OR route params
+  // Use from store OR route params as fallback
   const stepType = selectedStepType || routeStepType;
+  const stepId = selectedStepId || routeStepId;
 
-  // Fetch productivity and completion data from first API
-  const fetchOverallStepWiseData = async () => {
+  // Function to handle item click
+  const handleItemClick = (item) => {
+    // Save design_id to Zustand store
+    if (item.originalData && item.originalData._id) {
+      setDesignId(item.originalData._id);
+      console.log('💾 Design ID saved to Zustand:', item.originalData._id);
+    }
+    
+    // Navigate to DesignList screen with all necessary data including _id
+    navigation.navigate('DesignList', { 
+      project: item,
+      designId: item.originalData?._id, // Pass _id explicitly
+      stageName: item.title,
+      stageData: item.originalData // Pass entire original data if needed
+    });
+  };
+
+  // Fetch design stages data from table API
+  const fetchDesignStagesData = async () => {
     try {
-      if (!selectedProjectId || !stepType || !token) {
-        console.log('Missing data for overall API:', {
+      if (!selectedProjectId || !stepId || !token) {
+        console.log('❌ Missing data for design stages API:', {
           projectId: selectedProjectId,
-          stepType: stepType,
+          stepId: stepId,
           token: token ? 'Available' : 'Missing'
         });
-        return;
+        return [];
       }
 
-      const API_URL = `${baseUrl}/reports/project/overall_step_wise?projectId=${selectedProjectId}&step_type=${stepType}`;
+      const API_URL = `${baseUrl}/reports/project/table?projectId=${selectedProjectId}&step_type=${stepId}`;
       
       console.log('==========================================');
-      console.log('Fetching overall step wise data...');
-      console.log('API URL:', API_URL);
-      console.log('Project ID:', selectedProjectId);
-      console.log('Step Type:', stepType);
+      console.log('📋 Fetching design stages data...');
+      console.log('🌐 API URL:', API_URL);
+      console.log('📁 Project ID:', selectedProjectId);
+      console.log('🔢 Step Type:', stepId);
       console.log('==========================================');
 
       const response = await fetch(API_URL, {
@@ -85,61 +90,128 @@ export default function DesignTask({ route }) {
         },
       });
 
-      console.log('Response status:', response.status);
+      console.log('📡 Design Stages API Response status:', response.status);
+      console.log('📡 Response OK:', response.ok);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const responseText = await response.text();
+      console.log('📄 Raw Design Stages API Response:', responseText);
+
+      // ✅ Parse successful response
+      let result;
+      try {
+        result = JSON.parse(responseText);
+        console.log('✅ Parsed Design Stages API Response:', JSON.stringify(result, null, 2));
+      } catch (parseError) {
+        console.error('❌ JSON Parse Error:', parseError);
+        throw new Error('Invalid JSON response from server');
       }
 
-      const result = await response.json();
-      console.log('Overall Step Wise API Response:', JSON.stringify(result, null, 2));
+      // ✅ Handle different response formats
+      let stagesData = [];
 
-      if (result && result.data) {
-        const data = result.data;
-        console.log('Completed Count:', data.completed_count);
-        console.log('Last Week Count:', data.last_week_count);
-
-        setSections(prevSections => [
-          {
-            ...prevSections[0],
-            percentage: `${data.last_week_count || 0}%`,
-            timestamp: 'As of just now',
-          },
-          {
-            ...prevSections[1],
-            percentage: `${data.completed_count || 0}%`,
-            timestamp: 'As of just now',
-          },
-        ]);
+      if (result && Array.isArray(result) && result.length > 0) {
+        stagesData = result;
+        console.log('🎯 Array Response Data:', stagesData);
+      } 
+      else if (result && result.data && Array.isArray(result.data)) {
+        stagesData = result.data;
+        console.log('🎯 Object with Data Array:', stagesData);
+      }
+      else if (result && typeof result === 'object') {
+        stagesData = [result];
+        console.log('🎯 Single Object Response:', stagesData);
       } else {
-        console.log('No data in response');
+        console.log('⚠️ No recognizable data in design stages API response');
+        return [];
       }
+
+      // ✅ Transform API data to designStages format
+      const transformedStages = stagesData.map((item, index) => {
+        // Extract name, date, and avg from API response
+        const name = item.name || item.stage_name || item.title || `Stage ${index + 1}`;
+        const date = item.date || item.created_at || item.updated_at || 'Not specified';
+        const avg = parseFloat(item.avg) || parseFloat(item.average) || parseFloat(item.progress) || 0;
+        
+        // Determine color based on avg percentage
+        let color = '#757575'; // Default gray for 0-25%
+        if (avg >= 50) {
+          color = '#4CAF50'; // Green for 50-100%
+        } else if (avg >= 25) {
+          color = '#FF9800'; // Orange for 25-50%
+        }
+
+        return {
+          id: item._id || item.id || `stage-${index}`,
+          title: name,
+          date: formatDate(date),
+          progress: 'Progress',
+          percentage: Math.min(Math.max(avg, 0), 100), // Ensure between 0-100
+          color: color,
+          originalData: item, // Keep original data for reference (includes _id)
+          stepTypeName: item.step_type_name // ✅ Add step_type_name from API response
+        };
+      });
+
+      console.log('✅ Transformed Design Stages:', transformedStages);
+      return transformedStages;
 
     } catch (err) {
-      console.error('Error fetching overall step wise data:', err);
-      throw err;
+      console.error('❌ Error fetching design stages data:', err);
+      console.error('❌ Error stack:', err.stack);
+      return [];
     }
   };
 
-  // Fetch last week productivity data from second API
-  const fetchIndividualProductivityData = async () => {
+  // Helper function to format date
+  const formatDate = (dateString) => {
+    if (!dateString || dateString === 'Not specified') {
+      return 'Not specified';
+    }
+    
     try {
-      if (!selectedProjectId || !stepType || !token) {
-        console.log('Missing data for individual API:', {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return dateString; // Return original if invalid date
+      }
+      
+      // Format as DD/MM/YY
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear().toString().slice(-2);
+      
+      return `${day}/${month}/${year}`;
+    } catch (error) {
+      console.error('Date formatting error:', error);
+      return dateString;
+    }
+  };
+
+  // Fetch productivity and completion data
+  const fetchOverallStepWiseData = async () => {
+    try {
+      if (!selectedProjectId || !token) {
+        console.log('❌ Missing data for overall API:', {
           projectId: selectedProjectId,
-          stepType: stepType,
           token: token ? 'Available' : 'Missing'
         });
-        return;
+        return null;
       }
 
-      const API_URL = `${baseUrl}/reports/project/s-cursive/individual?projectId=${selectedProjectId}&step_type=${stepType}`;
+      // ✅ CORRECTED API URL - Using step_type instead of step_id
+      let API_URL = `${baseUrl}/reports/project/overall_step_wise?projectId=${selectedProjectId}&step_type={stepId}`;
+      
+      // Add step_id only if it exists (as optional parameter)
+      if (stepId) {
+        API_URL += `&step_id=${stepId}`;
+      }
       
       console.log('==========================================');
-      console.log('Fetching individual productivity data...');
-      console.log('API URL:', API_URL);
+      console.log('📊 Fetching overall step wise data...');
+      console.log('🌐 API URL:', API_URL);
+      console.log('📁 Project ID:', selectedProjectId);
+      console.log('🔢 Step Type:', stepType);
+      console.log('🆔 Step ID:', stepId);
+      console.log('🔑 Token:', token ? 'Available' : 'Missing');
       console.log('==========================================');
 
       const response = await fetch(API_URL, {
@@ -150,177 +222,373 @@ export default function DesignTask({ route }) {
         },
       });
 
-      console.log('Response status:', response.status);
+      console.log('📡 Overall API Response status:', response.status);
+      console.log('📡 Response OK:', response.ok);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const responseText = await response.text();
+      console.log('📄 Raw API Response:', responseText);
+
+      // ✅ Parse successful response
+      let result;
+      try {
+        result = JSON.parse(responseText);
+        console.log('✅ Parsed API Response:', JSON.stringify(result, null, 2));
+      } catch (parseError) {
+        console.error('❌ JSON Parse Error:', parseError);
+        throw new Error('Invalid JSON response from server');
       }
 
-      const result = await response.json();
-      console.log('Individual Productivity API Response:', JSON.stringify(result, null, 2));
-
-      if (result && result.data) {
+      // ✅ Handle array response (like your Postman example)
+      if (result && Array.isArray(result) && result.length > 0) {
+        const data = result[0];
+        console.log('🎯 Array Response Data:', data);
+        console.log('📊 Completed Count:', data.completed_count);
+        console.log('📊 Last Week Count:', data.last_week_count);
+        console.log('📊 Total Tasks:', data.totalTasks);
+        console.log('📊 Completed Tasks:', data.completedTasks);
+        
+        // ✅ All available keys show karein
+        console.log('🔑 All Available Keys:', Object.keys(data));
+        
+        return {
+          completedCount: data.completed_count || 0,
+          lastWeekCount: data.last_week_count || 0,
+          totalTasks: data.totalTasks || 0,
+          completedTasks: data.completedTasks || 0
+        };
+      } 
+      // ✅ Handle object response with data property
+      else if (result && result.data) {
         const data = result.data;
-        console.log('Last Week Data:', data.lastWeek || data.last_week);
-
-        setSections(prevSections => [
-          {
-            ...prevSections[0],
-            lastWeekData: `${data.lastWeek || data.last_week || 0}%`,
-          },
-          prevSections[1]
-        ]);
-      } else {
-        console.log('No data in response');
+        console.log('🎯 Object Response Data:', data);
+        return {
+          completedCount: data.completed_count || 0,
+          lastWeekCount: data.last_week_count || 0,
+          totalTasks: data.totalTasks || 0,
+          completedTasks: data.completedTasks || 0
+        };
       }
-
-      return result;
+      // ✅ Handle direct object response
+      else if (result && typeof result === 'object') {
+        console.log('🎯 Direct Object Response:', result);
+        return {
+          completedCount: result.completed_count || 0,
+          lastWeekCount: result.last_week_count || 0,
+          totalTasks: result.totalTasks || 0,
+          completedTasks: result.completedTasks || 0
+        };
+      } else {
+        console.log('⚠️ No recognizable data in API response');
+        console.log('📊 Response received:', result);
+        return null;
+      }
 
     } catch (err) {
-      console.error('Error fetching individual productivity data:', err);
-      throw err;
+      console.error('❌ Error fetching overall step wise data:', err);
+      console.error('❌ Error stack:', err.stack);
+      return {
+        completedCount: 0,
+        lastWeekCount: 0,
+        totalTasks: 0,
+        completedTasks: 0
+      };
     }
   };
 
   // Main function to fetch all data
   const fetchAllData = async () => {
     try {
-      if (!selectedProjectId || !stepType || !token) {
-        console.log('Missing required data:', {
+      if (!selectedProjectId || !token) {
+        console.log('❌ Missing required data:', {
           projectId: selectedProjectId,
-          stepType: stepType,
           token: token ? 'Available' : 'Missing'
         });
         setLoading(false);
+        setStagesLoading(false);
         return;
       }
 
-      console.log('Starting data fetch...');
+      console.log('🚀 Starting data fetch...');
+      console.log('📦 Using values:', {
+        projectId: selectedProjectId,
+        stepType: stepType,
+        stepId: stepId,
+      });
+      
       setLoading(true);
+      setStagesLoading(true);
       setError(null);
 
-      await Promise.all([
+      // Fetch both APIs in parallel for better performance
+      const [overallData, stagesData] = await Promise.all([
         fetchOverallStepWiseData(),
-        fetchIndividualProductivityData()
+        fetchDesignStagesData()
       ]);
 
-      console.log('All data fetched successfully');
+      console.log('==========================================');
+      console.log('📦 FINAL API RESULTS:');
+      console.log('Overall Data Received:', overallData);
+      console.log('Design Stages Data Received:', stagesData);
+      console.log('==========================================');
+
+      // ✅ Step type name extract karo (first item se)
+      if (stagesData && stagesData.length > 0) {
+        const firstStage = stagesData[0];
+        if (firstStage.stepTypeName) {
+          setStepTypeName(firstStage.stepTypeName);
+          console.log('✅ Step Type Name set:', firstStage.stepTypeName);
+        } else {
+          console.log('⚠️ No step_type_name found in API response');
+          // Check if step_type_name exists in originalData
+          if (firstStage.originalData && firstStage.originalData.step_type_name) {
+            setStepTypeName(firstStage.originalData.step_type_name);
+            console.log('✅ Step Type Name set from originalData:', firstStage.originalData.step_type_name);
+          }
+        }
+      }
+
+      // ✅ Set sections data
+      let newSections = [];
+
+      if (!overallData) {
+        console.log('⚠️ No data received from overall API');
+        newSections = [
+          {
+            id: '1',
+            title: 'Productivity',
+            percentage: '0%',
+            subtitle: 'Last Weeks Productivity',
+            timestamp: 'No data available',
+            lastWeekData: '0%',
+            rawValue: 0
+          },
+          {
+            id: '2',
+            title: 'Completion',
+            percentage: '0%',
+            subtitle: 'Tasks Completion',
+            timestamp: 'No data available',
+            rawValue: 0
+          },
+        ];
+      } else {
+        // ✅ CORRECTED: Use proper calculations based on your API response
+        console.log('🎯 Building sections with data:');
+        console.log('📊 Productivity (completed_count):', overallData.completedCount);
+        console.log('📊 Last Week (last_week_count):', overallData.lastWeekCount);
+        console.log('📊 Total Tasks:', overallData.totalTasks);
+        console.log('📊 Completed Tasks:', overallData.completedTasks);
+        
+        const completionPercentage = overallData.totalTasks > 0 
+          ? ((overallData.completedTasks / overallData.totalTasks) * 100).toFixed(2)
+          : 0;
+
+        newSections = [
+          {
+            id: '1',
+            title: 'Productivity',
+            percentage: `${overallData.completedCount}%`,
+            subtitle: 'Current Productivity',
+            lastWeekData: `${overallData.lastWeekCount}%`,
+            rawValue: overallData.completedCount
+          },
+          {
+            id: '2',
+            title: 'Completion',
+            percentage: `${completionPercentage}%`,
+            subtitle: 'Tasks Completion',
+            timestamp: 'As of just now',
+            tasksCompleted: overallData.completedTasks,
+            totalTasks: overallData.totalTasks,
+            rawValue: completionPercentage
+          },
+        ];
+      }
+
+      // ✅ Set design stages data
+      if (stagesData && stagesData.length > 0) {
+        setDesignStages(stagesData);
+        console.log('✅ Design stages set with API data');
+      } else {
+        // Fallback to default data if API returns empty
+        const fallbackStages = [
+          {
+            id: '1',
+            title: 'Design Preparation Stage',
+            date: '04/03/25',
+            progress: 'Progress',
+            percentage: 30,
+            color: '#FF9800',
+            originalData: { _id: 'fallback-1' }, // Add fallback _id
+            stepTypeName: 'Design' // Fallback step type name
+          },
+          {
+            id: '2',
+            title: 'Design Development Stage',
+            date: '19/05/25',
+            progress: 'Progress',
+            percentage: 55,
+            color: '#4CAF50',
+            originalData: { _id: 'fallback-2' }, // Add fallback _id
+            stepTypeName: 'Design' // Fallback step type name
+          },
+          {
+            id: '3',
+            title: 'Detail Design (70%-100%)',
+            date: '19/05/25',
+            progress: 'Progress',
+            percentage: 80,
+            color: '#4CAF50',
+            originalData: { _id: 'fallback-3' }, // Add fallback _id
+            stepTypeName: 'Design' // Fallback step type name
+          },
+          {
+            id: '4',
+            title: 'Issue For Construction (IFC)',
+            date: '06/06/25',
+            progress: 'Progress',
+            percentage: 100,
+            color: '#4CAF50',
+            originalData: { _id: 'fallback-4' }, // Add fallback _id
+            stepTypeName: 'Design' // Fallback step type name
+          },
+        ];
+        setDesignStages(fallbackStages);
+        console.log('⚠️ Using fallback design stages data');
+      }
+
+      console.log('✅ Final Sections Data:', newSections);
+      console.log('✅ Final Design Stages:', designStages);
+      setSections(newSections);
+      setLoading(false);
+      setStagesLoading(false);
 
     } catch (err) {
-      console.error('Error fetching data:', err);
+      console.error('❌ Error in fetchAllData:', err);
+      console.error('❌ Error stack:', err.stack);
       setError(err.message);
+      setLoading(false);
+      setStagesLoading(false);
       
-      setSections([
+      // Set error state for sections with default values
+      const errorSections = [
         {
           id: '1',
           title: 'Productivity',
-          percentage: 'N/A',
+          percentage: '0%',
           subtitle: 'Last Weeks Productivity',
           timestamp: 'Failed to load',
-          lastWeekData: 'N/A',
+          lastWeekData: '0%',
+          rawValue: 0
         },
         {
           id: '2',
           title: 'Completion',
-          percentage: 'N/A',
-          subtitle: '',
+          percentage: '0%',
+          subtitle: 'Tasks Completion',
           timestamp: 'Failed to load',
+          rawValue: 0
         },
-      ]);
-    } finally {
-      setLoading(false);
+      ];
+      
+      console.log('⚠️ Setting error sections:', errorSections);
+      setSections(errorSections);
+    
+      const fallbackStages = [
+        {
+          id: '1',
+          title: 'Design Preparation Stage',
+          date: '04/03/25',
+          progress: 'Progress',
+          percentage: 30,
+          color: '#FF9800',
+          originalData: { _id: 'error-1' },
+          stepTypeName: 'Design'
+        },
+        {
+          id: '2',
+          title: 'Design Development Stage',
+          date: '19/05/25',
+          progress: 'Progress',
+          percentage: 55,
+          color: '#4CAF50',
+          originalData: { _id: 'error-2' },
+          stepTypeName: 'Design'
+        },
+        {
+          id: '3',
+          title: 'Detail Design (70%-100%)',
+          date: '19/05/25',
+          progress: 'Progress',
+          percentage: 80,
+          color: '#4CAF50',
+          originalData: { _id: 'error-3' },
+          stepTypeName: 'Design'
+        },
+        {
+          id: '4',
+          title: 'Issue For Construction (IFC)',
+          date: '06/06/25',
+          progress: 'Progress',
+          percentage: 100,
+          color: '#4CAF50',
+          originalData: { _id: 'error-4' },
+          stepTypeName: 'Design'
+        },
+      ];
+      setDesignStages(fallbackStages);
     }
   };
 
   useEffect(() => {
     console.log('==========================================');
-    console.log('useEffect triggered - DesignTask');
-    console.log('Project ID:', selectedProjectId);
-    console.log('Step Type (from useProjectStore):', selectedStepType);
-    console.log('Step Type (from route params):', routeStepType);
-    console.log('Final Step Type being used:', stepType);
-    console.log('Token:', token ? 'Available' : 'Missing');
+    console.log('🎬 useEffect triggered - DesignTask');
+    console.log('📁 Project ID:', selectedProjectId);
+    console.log('🔢 Step Type (from useProjectStore):', selectedStepType);
+    console.log('🔢 Step Type (from route params):', routeStepType);
+    console.log('🆔 Step ID (from useProjectStore):', selectedStepId);
+    console.log('🆔 Step ID (from route params):', routeStepId);
+    console.log('✅ Final Step Type being used:', stepType);
+    console.log('✅ Final Step ID being used:', stepId);
+    console.log('🔑 Token:', token ? 'Available' : 'Missing');
     
-    // ✅ Check full store state
     const fullStoreState = getStoreState();
     console.log('💾 Full store state:', fullStoreState);
     console.log('==========================================');
 
-    if (selectedProjectId && stepType && token) {
+    if (selectedProjectId && token) {
       fetchAllData();
     } else {
       setLoading(false);
-      
-      if (!stepType) {
-        console.log('❌ stepType is null/undefined');
-        console.log('Store selectedStepType:', selectedStepType);
-        console.log('Route step_type:', routeStepType);
-      }
+      setStagesLoading(false);
+      console.log('❌ Cannot fetch - missing required data');
     }
-  }, [selectedProjectId, stepType, token]);
+  }, [selectedProjectId, stepType, stepId, token]);
 
-  // ✅ Add delayed check to see if store updates
   useEffect(() => {
     const timer = setTimeout(() => {
       console.log('⏰ Delayed store check in DesignTask:');
       const currentState = getStoreState();
-      console.log('Store state after delay:', currentState);
+      console.log('📦 Store state after delay:', {
+        selectedStepType: currentState.selectedStepType,
+        selectedStepId: currentState.selectedStepId,
+        selectedProjectId: currentState.selectedProjectId,
+      });
     }, 3000);
 
     return () => clearTimeout(timer);
   }, []);
 
-  const designStages = [
-    {
-      id: '1',
-      title: 'Design Preparation Stage',
-      date: '04/03/25',
-      progress: 'Progress',
-      percentage: 30,
-      color: '#4CAF50',
-    },
-    {
-      id: '2',
-      title: 'Design Development Stage',
-      date: '19/05/25',
-      progress: 'Progress',
-      percentage: 55,
-      color: '#4CAF50',
-    },
-    {
-      id: '3',
-      title: 'Detail Design (70%-100%)',
-      date: '19/05/25',
-      progress: 'Progress',
-      percentage: 80,
-      color: '#FF9800',
-    },
-    {
-      id: '4',
-      title: 'Issue For Construction (IFC)',
-      date: '06/06/25',
-      progress: 'Progress',
-      percentage: 100,
-      color: '#757575',
-    },
-  ];
-
   const renderItem = ({ item }) => (
     <TouchableOpacity
       style={styles.itemContainer}
-      onPress={() => {
-        if (item.title === 'Design Development Stage') {
-          navigation.navigate('DesignList', { project: item });
-        }
-      }}
+      onPress={() => handleItemClick(item)} // Use the new handler function
     >
       <View style={[styles.leftBar, { backgroundColor: item.color }]} />
       <View style={{ flex: 1 }}>
         <View style={styles.header}>
           <Text style={styles.title}>
-            {item.id}. {item.title}
+          {item.title}
           </Text>
         </View>
         <Text style={styles.date}>{item.date}</Text>
@@ -345,31 +613,19 @@ export default function DesignTask({ route }) {
   const renderHorizontalItem = ({ item }) => (
     <View style={styles.cardContainer}>
       <View style={styles.horizontalCard}>
-        {loading ? (
-          <View style={styles.loadingCard}>
-            <ActivityIndicator size="small" color="#1d9b20" />
-            <Text style={styles.loadingText}>Loading...</Text>
-          </View>
-        ) : (
-          <>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <View style={styles.percentageContainer}>
-              <Text style={styles.percentageText}>{item.percentage}</Text>
-              
-              {item.title === 'Productivity' && item.lastWeekData && (
-                <View style={styles.lastWeekContainer}>
-                  <Text style={styles.lastWeekLabel}>Last Week:</Text>
-                  <Text style={styles.lastWeekValue}>{item.lastWeekData}</Text>
-                </View>
-              )}
-              
-              {item.subtitle ? (
-                <Text style={styles.updateText}>{item.subtitle}</Text>
-              ) : null}
-              <Text style={styles.updateTexts}>{item.timestamp}</Text>
+        <Text style={styles.cardTitle}>{item.title}</Text>
+        <View style={styles.percentageContainer}>
+          <Text style={styles.percentageText}>{item.percentage}</Text>
+          
+          {item.title === 'Productivity' && (
+            <View style={styles.dataContainer}>
+              <Text style={styles.dataLabel}>Last Week's Productivity</Text>
+              <Text style={styles.dataValue}>{item.lastWeekData}</Text>
             </View>
-          </>
-        )}
+          )}
+          
+          <Text style={styles.updateTexts}>{item.timestamp}</Text>
+        </View>
       </View>
     </View>
   );
@@ -410,35 +666,52 @@ export default function DesignTask({ route }) {
                 <Ionicons name="arrow-back" size={hp('2.8%')} color="#ffff" />
               </TouchableOpacity>
             </View>
-            
-            {/* Step Type Display */}
-            <View style={styles.stepTypeContainer}>
-              <Text style={styles.stepTypeLabel}>Current Step Type: </Text>
-              <Text style={styles.stepTypeValue}>{stepType || 'Not available'}</Text>
-            </View>
-            
             <Text style={styles.subtitle}>
-              Productivity-Matrix {stepType ? 'Design' : 'Loading...'}
+              Productivity-Matrix {stepTypeName} {/* ✅ Dynamic step type name */}
             </Text>
             
-            <FlatList
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              data={sections}
-              renderItem={renderHorizontalItem}
-              keyExtractor={item => item.id}
-              contentContainerStyle={styles.horizontalFlatListContent}
-              style={[
-                styles.horizontalFlatList,
-                {
-                  paddingBottom: wp('1%'),
-                },
-              ]}
-            />
-            <Text style={styles.sectionTitle}>
-              {stepType ? 'Design' : 'Loading...'}
-            </Text>
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#1d9b20" />
+                <Text style={styles.loadingText}>Loading data...</Text>
+              </View>
+            ) : sections ? (
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={sections}
+                renderItem={renderHorizontalItem}
+                keyExtractor={item => item.id}
+                contentContainerStyle={styles.horizontalFlatListContent}
+                style={[
+                  styles.horizontalFlatList,
+                  {
+                    paddingBottom: wp('1%'),
+                  },
+                ]}
+              />
+            ) : (
+              <View style={styles.noDataContainer}>
+                <Text style={styles.noDataText}>No data available</Text>
+              </View>
+            )}
+            
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                {stepTypeName} {/* ✅ Dynamic step type name */}
+              </Text>
+              {stagesLoading && (
+                <ActivityIndicator size="small" color="#1d9b20" />
+              )}
+            </View>
           </>
+        }
+        ListEmptyComponent={
+          !stagesLoading && (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No design stages available</Text>
+            </View>
+          )
         }
       />
     </View>
@@ -446,33 +719,17 @@ export default function DesignTask({ route }) {
 }
 
 const styles = StyleSheet.create({
-  stepTypeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#e8f5e9',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginTop: hp('1%'),
-    marginBottom: hp('0.5%'),
-    borderLeftWidth: 4,
-    borderLeftColor: '#1d9b20',
-  },
-  stepTypeLabel: {
-    fontSize: hp('1.8%'),
-    color: '#666',
-    fontWeight: '500',
-  },
-  stepTypeValue: {
-    fontSize: hp('1.8%'),
-    color: '#1d9b20',
-    fontWeight: 'bold',
-  },
   subtitle: {
     fontSize: hp('2.3%'),
     color: '#ADADAD',
     marginBottom: hp('1%'),
     fontFamily: 'Poppins-Italic',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: hp('1%'),
   },
   sectionTitle: {
     fontSize: hp('2.2%'),
@@ -492,37 +749,29 @@ const styles = StyleSheet.create({
     color: '#1d9b20',
     textAlign: 'left',
   },
-  updateText: {
-    fontSize: hp('1.5%'),
-    color: '#000',
+  dataContainer: {
+    marginTop: hp('1%'),
+    padding: 8,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 6,
+    alignSelf: 'stretch',
+  },
+  dataLabel: {
+    fontSize: hp('1.4%'),
+    color: '#666',
+    fontWeight: '600',
+  },
+  dataValue: {
+    fontSize: hp('1.8%'),
+    color: '#1d9b20',
     fontWeight: 'bold',
-    marginTop: hp('0.5%'),
-    textAlign: 'left', 
+    marginTop: 4,
   },
   updateTexts: {
     fontSize: hp('1.3%'),
     color: '#666',
-    marginTop: hp('0.5%'),
+    marginTop: hp('1%'),
     textAlign: 'left',
-  },
-  lastWeekContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: hp('0.5%'),
-    backgroundColor: '#f0f8f0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  lastWeekLabel: {
-    fontSize: hp('1.4%'),
-    color: '#666',
-    marginRight: 5,
-  },
-  lastWeekValue: {
-    fontSize: hp('1.5%'),
-    color: '#1d9b20',
-    fontWeight: 'bold',
   },
   leftBar: {
     width: wp('9%'),
@@ -629,15 +878,6 @@ const styles = StyleSheet.create({
     marginBottom: hp('1%'),
     textAlign: 'left',
   },
-  loadingCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    fontSize: hp('1.4%'),
-    color: '#666',
-    marginTop: 5,
-  },
   errorContainer: {
     backgroundColor: '#ffebee',
     padding: 12,
@@ -666,5 +906,39 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontWeight: 'bold',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp('3%'),
+    marginVertical: hp('2%'),
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: hp('1.6%'),
+    color: '#666',
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp('3%'),
+    marginVertical: hp('2%'),
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginHorizontal: wp('2%'),
+  },
+  noDataText: {
+    fontSize: hp('1.8%'),
+    color: '#999',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp('5%'),
+  },
+  emptyText: {
+    fontSize: hp('1.8%'),
+    color: '#999',
+    textAlign: 'center',
   },
 });

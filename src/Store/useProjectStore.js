@@ -1,69 +1,3 @@
-// 
-// import { persist } from 'zustand/middleware';
-
-// export const useProjectStore = create(
-//   persist(
-//     (set, get) => ({
-//       selectedProjectId: null,
-//       projectData: null,
-//       selectedStepType: null,
-//       selectedStepId: null,
-//       projectCardsData: [],
-//       projectStepTypes: [],
-//       setSelectedProjectId: (projectId) => {
-//         console.log('🔄 Setting selectedProjectId:', projectId);
-//         set({ selectedProjectId: projectId });
-//       },
-      
-//       setProjectData: (data) => set({ projectData: data }),
-      
-//       setSelectedStepType: (stepType) => {
-//         console.log('🔄 setSelectedStepType called with:', stepType);
-//         console.log('📝 Previous selectedStepType:', get().selectedStepType);
-        
-//         set({ 
-//           selectedStepType: stepType
-//         });
-        
-//         console.log('✅ New selectedStepType:', get().selectedStepType);
-//       },
-      
-//       setProjectCardsData: (cardsData) => {
-//         set({ projectCardsData: cardsData });
-//       },
-      
-//       setProjectStepTypes: (stepTypes) => {
-//         console.log('🔄 Setting projectStepTypes:', stepTypes.length, 'items');
-//         set({ projectStepTypes: stepTypes });
-//       },
-      
-//       getAllStepTypes: () => {
-//         const state = get();
-//         return state.projectStepTypes;
-//       },
-      
-//       getStoreState: () => {
-//         return get();
-//       },
-      
-//       clearProjectData: () => set({ 
-//         selectedProjectId: null, 
-//         projectData: null,
-//         selectedStepType: null,
-//         selectedStepId: null,
-//         projectCardsData: [],
-//         projectStepTypes: []
-//       }),
-//     }),
-//     {
-//       name: 'project-storage',
-//       onRehydrateStorage: () => (state) => {
-//         console.log('🔄 Store rehydrated:', state);
-//       }
-//     }
-//   )
-// );
-
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
@@ -77,6 +11,7 @@ export const useProjectStore = create(
       selectedStepId: null,
       projectCardsData: [],
       projectStepTypes: [],
+      designId: null, // New state for design ID
       
       // Actions
       setSelectedProjectId: (projectId) => {
@@ -109,6 +44,12 @@ export const useProjectStore = create(
         });
         
         console.log('✅ New selectedStepId:', get().selectedStepId);
+      },
+      
+      // New action to set design ID
+      setDesignId: (designId) => {
+        console.log('💾 Setting design ID:', designId);
+        set({ designId });
       },
       
       setProjectCardsData: (cardsData) => {
@@ -150,7 +91,8 @@ export const useProjectStore = create(
           selectedStepType: null,
           selectedStepId: null,
           projectCardsData: [],
-          projectStepTypes: []
+          projectStepTypes: [],
+          designId: null // Also clear designId
         });
       },
       
@@ -161,6 +103,12 @@ export const useProjectStore = create(
           selectedStepType: null,
           selectedStepId: null,
         });
+      },
+      
+      // Clear only design ID
+      clearDesignId: () => {
+        console.log('🗑️ Clearing design ID');
+        set({ designId: null });
       },
     }),
     {
@@ -173,6 +121,7 @@ export const useProjectStore = create(
             selectedStepType: state.selectedStepType,
             selectedStepId: state.selectedStepId,
             projectStepTypes: state.projectStepTypes?.length || 0,
+            designId: state.designId,
           });
         }
       }
