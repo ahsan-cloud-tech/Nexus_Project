@@ -9,6 +9,7 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import Header from '../../Components/Header';
 import {
@@ -22,6 +23,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
 import { baseUrl } from '../../utils/Api';
 import { useProjectStore } from '../../Store/useProjectStore';
+import RNFetchBlob from 'rn-fetch-blob';
 
 const CustomDropdown = ({ label, options, selectedValue, onSelect }) => {
   const [open, setOpen] = useState(false);
@@ -88,14 +90,18 @@ const CustomDropdown = ({ label, options, selectedValue, onSelect }) => {
 const CurrentProjectsPhases = ({ route }) => {
   const [isModalVisible, setModalVisible] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState(null);
-  const [selectedCore, setSelectedCore] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [overallData, setOverallData] = useState(null);
   const [cardsData, setCardsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cardsLoading, setCardsLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState(null);
+  const [buildingsData, setBuildingsData] = useState([]);
+  const [levelsData, setLevelsData] = useState([]);
+  const [unitsData, setUnitsData] = useState([]);
+  const [buildingsLoading, setBuildingsLoading] = useState(false);
   const navigation = useNavigation();
 
   const token = useSelector(state => state.auth.token);
@@ -106,8 +112,191 @@ const CurrentProjectsPhases = ({ route }) => {
     selectedStepType,
     selectedStepId,
     setProjectStepTypes,
-    getStoreState
+    getStoreState,
+    setSelectedBuildingId,
+    setSelectedLevelId,
+    setSelectedUnitName
   } = useProjectStore();
+
+  // ✅ Function to fetch buildings data
+  const fetchBuildingsData = async () => {
+    try {
+      setBuildingsLoading(true);
+      
+      if (!token || !selectedProjectId) {
+        console.log('❌ Missing token or project ID for buildings API');
+        return;
+      }
+
+      console.log('🏢 ===== Fetching buildings data =====');
+      console.log('📁 Project ID:', selectedProjectId);
+      console.log('🌐 API URL:', `${baseUrl}/buildings/all/${selectedProjectId}`);
+
+      const response = await fetch(
+        `${baseUrl}/buildings/all/${selectedProjectId}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      console.log('📡 Buildings API Response status:', response.status);
+
+      if (response.status === 401) {
+        console.log('🔐 Buildings API: Unauthorized');
+        return;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Buildings API Error:', errorText);
+        return;
+      }
+
+      const result = await response.json();
+      console.log('✅ Buildings API Response:', JSON.stringify(result, null, 2));
+
+      if (Array.isArray(result)) {
+        setBuildingsData(result);
+        console.log('🏢 Buildings data loaded:', result.length, 'buildings');
+      } else {
+        console.log('⚠️ No buildings data found in response');
+        setBuildingsData([]);
+      }
+
+    } catch (error) {
+      console.error('❌ Error fetching buildings data:', error);
+    } finally {
+      setBuildingsLoading(false);
+    }
+  };
+
+  // ✅ Function to handle building selection
+  const handleBuildingSelect = (buildingId) => {
+    setSelectedBuilding(buildingId);
+    setSelectedLevel(null);
+    setSelectedUnit(null);
+    setUnitsData([]);
+    
+    // Find the selected building
+    const building = buildingsData.find(b => b._id === buildingId);
+    if (building && building.levels) {
+      setLevelsData(building.levels);
+      console.log('🏗️ Levels data set for building:', building.name);
+    } else {
+      setLevelsData([]);
+    }
+
+    // ✅ Save building ID to useProjectStore
+    setSelectedBuildingId(buildingId);
+    console.log('💾 Building ID saved to useProjectStore:', buildingId);
+  };
+
+  // ✅ Function to handle level selection
+  const handleLevelSelect = (levelId) => {
+    setSelectedLevel(levelId);
+    setSelectedUnit(null);
+    
+    // Find the selected level
+    const level = levelsData.find(l => l._id === levelId);
+    if (level && level.progress_names) {
+      const unitOptions = level.progress_names.map((unitName, index) => ({
+        label: unitName,
+        value: unitName,
+        id: `unit-${levelId}-${index}`
+      }));
+      setUnitsData(unitOptions);
+      console.log('📋 Units data set for level:', level.name);
+    } else {
+      setUnitsData([]);
+    }
+
+    // ✅ Save level ID to useProjectStore
+    setSelectedLevelId(levelId);
+    console.log('💾 Level ID saved to useProjectStore:', levelId);
+  };
+
+  // ✅ Function to handle unit selection
+  const handleUnitSelect = (unitName) => {
+    setSelectedUnit(unitName);
+    
+    // ✅ Save unit name to useProjectStore
+    setSelectedUnitName(unitName);
+    console.log('💾 Unit name saved to useProjectStore:', unitName);
+  };
+
+  // ✅ Function to download Excel report
+  const downloadExcelReport = async () => {
+    try {
+      if (!token || !selectedProjectId) {
+        Alert.alert('Error', 'Authentication required or no project selected');
+        return;
+      }
+
+      setDownloading(true);
+
+      console.log('📥 Starting Excel download...');
+      console.log('📁 Project ID:', selectedProjectId);
+      console.log('🌐 API URL:', `${baseUrl}/projects/export-function/data?project=${selectedProjectId}`);
+
+      // Define the download path
+      const { config, fs } = RNFetchBlob;
+      const date = new Date();
+      const filename = `Project_Report_${selectedProjectId}_${date.getTime()}.xlsx`;
+      
+      // For Android, use Download directory; for iOS, use DocumentDirectory
+      const downloadDir = Platform.OS === 'ios' ? 
+        fs.dirs.DocumentDir : 
+        fs.dirs.DownloadDir;
+      
+      const path = `${downloadDir}/${filename}`;
+
+      const response = await config({
+        fileCache: true,
+        addAndroidDownloads: {
+          useDownloadManager: true,
+          notification: true,
+          path: path,
+          description: 'Project Report Download',
+        },
+      }).fetch(
+        'GET',
+        `${baseUrl}/projects/export-function/data?project=${selectedProjectId}`,
+        {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }
+      );
+
+      console.log('📥 Download response status:', response.info().status);
+      console.log('📥 Download path:', path);
+
+      if (response.info().status === 200) {
+        if (Platform.OS === 'ios') {
+          // For iOS, we need to open the document
+          RNFetchBlob.ios.openDocument(response.data);
+        }
+        
+        Alert.alert(
+          'Success',
+          `Excel report downloaded successfully!\nFile: ${filename}`,
+          [{ text: 'OK' }]
+        );
+        
+        console.log('✅ Excel file downloaded successfully');
+      } else {
+        throw new Error(`Download failed with status: ${response.info().status}`);
+      }
+
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // ✅ Function to log current status
   const logStatus = () => {
@@ -118,6 +307,9 @@ const CurrentProjectsPhases = ({ route }) => {
     console.log('🏪 useProjectStore Status:');
     console.log('   - selectedStepType:', selectedStepType);
     console.log('   - selectedStepId:', selectedStepId);
+    console.log('   - selectedBuildingId:', storeState.selectedBuildingId);
+    console.log('   - selectedLevelId:', storeState.selectedLevelId);
+    console.log('   - selectedUnitName:', storeState.selectedUnitName);
     console.log('   - Full store state:', storeState);
     
     console.log('🔍 ===== END STATUS CHECK =====');
@@ -317,6 +509,7 @@ const CurrentProjectsPhases = ({ route }) => {
         console.log('📊 Last Week Count:', result.data.last_week_count || 0);
         
         await fetchCardsData();
+        await fetchBuildingsData(); // ✅ Fetch buildings data after overall data
       } else {
         console.log('⚠️ No data found in response');
         setOverallData({
@@ -325,6 +518,7 @@ const CurrentProjectsPhases = ({ route }) => {
         });
         
         await fetchCardsData();
+        await fetchBuildingsData(); // ✅ Fetch buildings data even if no overall data
       }
 
     } catch (error) {
@@ -337,6 +531,7 @@ const CurrentProjectsPhases = ({ route }) => {
       });
       
       await fetchCardsData();
+      await fetchBuildingsData(); // ✅ Fetch buildings data even on error
     } finally {
       setLoading(false);
     }
@@ -563,6 +758,9 @@ const CurrentProjectsPhases = ({ route }) => {
           {cardsLoading && (
             <Text style={styles.loadingSubText}>Fetching phase details...</Text>
           )}
+          {buildingsLoading && (
+            <Text style={styles.loadingSubText}>Loading buildings data...</Text>
+          )}
         </View>
       </View>
     );
@@ -606,45 +804,35 @@ const CurrentProjectsPhases = ({ route }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={{ fontSize: 18, marginBottom: 10 }}>Finishes</Text>
+            
+            {/* Building Dropdown */}
             <CustomDropdown
               label="Building"
-              options={[
-                { label: 'A1', value: 'A' },
-                { label: 'A2', value: 'B' },
-                { label: 'A3', value: 'C' },
-              ]}
+              options={buildingsData.map(building => ({
+                label: building.name,
+                value: building._id
+              }))}
               selectedValue={selectedBuilding}
-              onSelect={setSelectedBuilding}
+              onSelect={handleBuildingSelect}
             />
 
-            <CustomDropdown
-              label="Core"
-              options={[
-                { label: 'Core 1', value: 'C1' },
-                { label: 'Core 2', value: 'C2' },
-              ]}
-              selectedValue={selectedCore}
-              onSelect={setSelectedCore}
-            />
-
+            {/* Level Dropdown */}
             <CustomDropdown
               label="Level"
-              options={[
-                { label: 'Level 1', value: 'L1' },
-                { label: 'Level 2', value: 'L2' },
-              ]}
+              options={levelsData.map(level => ({
+                label: level.name,
+                value: level._id
+              }))}
               selectedValue={selectedLevel}
-              onSelect={setSelectedLevel}
+              onSelect={handleLevelSelect}
             />
 
+            {/* Unit Dropdown */}
             <CustomDropdown
               label="Unit"
-              options={[
-                { label: 'Unit 1', value: 'U101' },
-                { label: 'Unit 2', value: 'U102' },
-              ]}
+              options={unitsData}
               selectedValue={selectedUnit}
-              onSelect={setSelectedUnit}
+              onSelect={handleUnitSelect}
             />
 
             <View style={styles.modalButtonRow}>
@@ -652,6 +840,12 @@ const CurrentProjectsPhases = ({ route }) => {
                 style={[styles.modalButton, { backgroundColor: '#fff' }]}
                 onPress={() => {
                   setModalVisible(false);
+                  // Reset selections
+                  setSelectedBuilding(null);
+                  setSelectedLevel(null);
+                  setSelectedUnit(null);
+                  setLevelsData([]);
+                  setUnitsData([]);
                 }}
               >
                 <Text style={[styles.modalButtonText, { color: 'red' }]}>
@@ -660,23 +854,38 @@ const CurrentProjectsPhases = ({ route }) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: '#5cb85c' }]}
+                style={[
+                  styles.modalButton, 
+                  { 
+                    backgroundColor: (selectedBuilding || selectedLevel) ? '#5cb85c' : '#cccccc' 
+                  }
+                ]}
                 onPress={() => {
-                  if (selectedBuilding && selectedCore) {
+                  // ✅ CHANGED CONDITION: Building OR Level select hone par navigate karega
+                  if (selectedBuilding || selectedLevel) {
                     setModalVisible(false);
+                    
+                    console.log('📍 ===== NAVIGATING TO CoreTask =====');
+                    console.log('🏢 Building ID:', selectedBuilding);
+                    console.log('🏗️ Level ID:', selectedLevel);
+                    console.log('🏠 Unit Name:', selectedUnit);
+                    
+                    // ✅ Log store status before navigation
+                    logStatus();
+                    
                     navigation.navigate('CoreTask', {
                       building: selectedBuilding,
-                      core: selectedCore,
                       level: selectedLevel,
                       unit: selectedUnit,
                       projectId: selectedProjectId,
                     });
                   } else {
                     alert(
-                      'Please select both Building and Core before proceeding.',
+                      'Please select at least Building OR Level before proceeding.',
                     );
                   }
                 }}
+                disabled={!selectedBuilding && !selectedLevel} // ✅ Button disable agar kuch bhi select nahi hai
               >
                 <Text style={[styles.modalButtonText, { color: '#fff' }]}>
                   Confirm
@@ -697,8 +906,20 @@ const CurrentProjectsPhases = ({ route }) => {
             <Ionicons name="arrow-back" size={hp('2.8%')} color="#fff" />
           </TouchableOpacity>
         </View>
-
-        <DownloadBtn title="Download Report" bgColor="#1d9b20" />
+        <TouchableOpacity
+          style={[styles.downloadButton, downloading && styles.downloadButtonDisabled]}
+          onPress={downloadExcelReport}
+          disabled={downloading}
+        >
+          {downloading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons name="download-outline" size={20} color="#fff" />
+          )}
+          <Text style={styles.downloadButtonText}>
+            {downloading ? 'Downloading...' : 'Download Report'}
+          </Text>
+        </TouchableOpacity>
 
         <FlatList
           horizontal
@@ -805,6 +1026,28 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
   scrollView: { flex: 1, padding: wp('5%') },
   title: { fontSize: hp('2.5%'), fontWeight: 'bold', color: '#333' },
+  
+  // ✅ Download Button Styles
+  downloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1d9b20',
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('4%'),
+    borderRadius: 8,
+    marginVertical: hp('1%'),
+    gap: 10,
+  },
+  downloadButtonDisabled: {
+    backgroundColor: '#cccccc',
+  },
+  downloadButtonText: {
+    color: '#fff',
+    fontSize: hp('1.8%'),
+    fontWeight: '600',
+  },
+  
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -935,36 +1178,6 @@ const styles = StyleSheet.create({
   retryButtonText: {
     color: '#fff',
     fontSize: hp('1.8%'),
-    fontWeight: '600',
-  },
-  debugContainer: {
-    backgroundColor: '#f0f0f0',
-    padding: wp('3%'),
-    borderRadius: 8,
-    marginTop: hp('2%'),
-  },
-  debugTitle: {
-    fontSize: hp('1.8%'),
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: hp('1%'),
-  },
-  debugText: {
-    fontSize: hp('1.5%'),
-    color: '#666',
-    fontFamily: 'monospace',
-    marginBottom: hp('0.5%'),
-  },
-  statusButton: {
-    backgroundColor: '#1d9b20',
-    padding: wp('3%'),
-    borderRadius: 8,
-    alignItems: 'center',
-    marginVertical: hp('1%'),
-  },
-  statusButtonText: {
-    color: '#fff',
-    fontSize: hp('1.6%'),
     fontWeight: '600',
   },
 });
