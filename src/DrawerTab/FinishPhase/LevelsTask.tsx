@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   FlatList,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import Header from '../../Components/Header';
 import {
@@ -14,16 +15,27 @@ import {
 } from 'react-native-responsive-screen';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { useNavigation } from '@react-navigation/native';
+import { useSelector } from 'react-redux';
+import { useProjectStore } from '../../Store/useProjectStore';
+import { baseUrl } from '../../utils/Api';
 
 export default function CoreTask() {
   const navigation = useNavigation();
-
+  const token = useSelector(state => state.auth.token);
+  const { selectedProjectId, selectedBuildingId } = useProjectStore();
+  
   // States for modal
   const [isModalVisible, setModalVisible] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState(null);
   const [selectedCore, setSelectedCore] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
+
+  // API states
+  const [sections, setSections] = useState([]);
+  const [designStages, setDesignStages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // ✅ Custom Dropdown Component
   const CustomDropdown = ({ label, options, selectedValue, onSelect }) => {
@@ -88,59 +100,148 @@ export default function CoreTask() {
     );
   };
 
-  // 🔹 Sections data
-  const sections = [
-    {
-      id: '1',
-      title: 'Productivity',
-      percentage: '4.87%',
-      subtitle: 'Last Weeks Over all Productivity',
-    },
-    {
-      id: '2',
-      title: 'Completion',
-      percentage: '79.87%',
-      subtitle: '',
-      timestamp: 'As of just now',
-    },
-    {
-      id: '3',
-      percentage: '7.89%',
-      subtitle: 'Last Weeks Completion Productivity',
-      timestamp: 'As of Tuesday 27 May at 3:24 pm',
-    },
-  ];
+  // 🔹 Fetch Building Data from API
+  const fetchBuildingData = async () => {
+    if (!selectedProjectId || !selectedBuildingId || !token) {
+      setError('Missing project ID, building ID, or authentication token');
+      setLoading(false);
+      return;
+    }
 
-  const designStages = [
-    {
-      id: '1',
-      title: 'Level 1',
-      date: 'Late: 17.65%',
-      progress: 93.75,
-      color: '#90EE90',
-    },
-    {
-      id: '2',
-      title: 'Level 2',
-      date: 'Late: 17.65%',
-      progress: 98.83,
-      color: '#4CAF50',
-    },
-    {
-      id: '3',
-      title: 'Level 3',
-      date: 'Late: 17.65%',
-      progress: 72.79,
-      color: '#FF9800',
-    },
-    {
-      id: '4',
-      title: 'Level 4',
-      date: 'Late: 17.65%',
-      progress: 16.58,
-      color: '#757575',
-    },
-  ];
+    try {
+      setLoading(true);
+      setError(null);
+      const API_URL = `${baseUrl}/reports/project/building?projectId=${selectedProjectId}&building=${selectedBuildingId}`;
+      console.log('🔄 Fetching building data from:', API_URL);
+      const response = await fetch(API_URL, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ API Response:', data);
+      
+      // Transform API data to match your component structure
+      if (data) {
+        // Update sections with API data
+        const updatedSections = [
+          {
+            id: '1',
+            title: 'Productivity',
+            percentage: `${data.last_week_count || '0'}`,
+            subtitle: 'Last Weeks Productivity',
+          },
+          {
+            id: '2',
+            title: 'Completion',
+            percentage: `${data.completed_count || '0'}`,
+            subtitle: '',
+            timestamp: 'As of just now',
+          },
+          {
+            id: '3',
+            percentage: `${data.last_week_completed_count || '0'}`,
+            subtitle: 'Last Weeks Completion Productivity',
+            timestamp: 'As of Tuesday 27 May at 3:24 pm',
+          },
+        ];
+        setSections(updatedSections);
+
+        // Update design stages if available in API response
+        // You might need to adjust this based on your actual API response structure
+        if (data.levels || data.design_stages) {
+          const stages = (data.levels || data.design_stages).map((level, index) => ({
+            id: level.id || level._id || `${index + 1}`,
+            title: level.name || level.title || `Level ${index + 1}`,
+            date: `Late: ${level.late_percentage || '17.65'}%`,
+            progress: level.completion_rate || level.progress || 0,
+            color: getColorByProgress(level.completion_rate || level.progress || 0),
+          }));
+          setDesignStages(stages);
+        } else {
+          // Fallback to your existing design stages if not in API
+          setDesignStages([
+            {
+              id: '1',
+              title: 'Level 1',
+              date: 'Late: 17.65%',
+              progress: 93.75,
+              color: '#90EE90',
+            },
+            {
+              id: '2',
+              title: 'Level 2',
+              date: 'Late: 17.65%',
+              progress: 98.83,
+              color: '#4CAF50',
+            },
+            {
+              id: '3',
+              title: 'Level 3',
+              date: 'Late: 17.65%',
+              progress: 72.79,
+              color: '#FF9800',
+            },
+            {
+              id: '4',
+              title: 'Level 4',
+              date: 'Late: 17.65%',
+              progress: 16.58,
+              color: '#757575',
+            },
+          ]);
+        }
+      }
+    } catch (err) {
+      console.error('❌ Error fetching building data:', err);
+      setError('Failed to load data. Please try again.');
+      
+      // Set fallback data in case of error
+      setSections([
+        {
+          id: '1',
+          title: 'Productivity',
+          percentage: '0',
+          subtitle: 'Last Weeks Productivity',
+        },
+        {
+          id: '2',
+          title: 'Completion',
+          percentage: '0',
+          subtitle: '',
+          timestamp: 'As of just now',
+        },
+        {
+          id: '3',
+          percentage: '0',
+          subtitle: 'Last Weeks Completion Productivity',
+          timestamp: 'As of Tuesday 27 May at 3:24 pm',
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🔹 Helper function to determine color based on progress
+  const getColorByProgress = (progress) => {
+    if (progress >= 90) return '#90EE90'; // Light Green
+    if (progress >= 75) return '#4CAF50'; // Green
+    if (progress >= 50) return '#FF9800'; // Orange
+    if (progress >= 25) return '#FF5722'; // Red-Orange
+    return '#757575'; // Gray
+  };
+
+  useEffect(() => {
+    fetchBuildingData();
+  }, [selectedProjectId, selectedBuildingId, token]);
 
   const renderItem = ({ item }) => (
     <TouchableOpacity
@@ -190,6 +291,30 @@ export default function CoreTask() {
       </View>
     </View>
   );
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1d9b20" />
+          <Text style={styles.loadingText}>Loading building data...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchBuildingData}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -304,7 +429,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     padding: wp('1%'),
     marginBottom: 12,
-    borderRadius: 8,marginTop:hp('1.3%')
+    borderRadius: 8,
+    marginTop: hp('1.3%')
   },
   header: {
     flexDirection: 'row',
@@ -493,6 +619,41 @@ const styles = StyleSheet.create({
   },
   selectedOptionText: {
     color: '#1d9b20',
+    fontWeight: 'bold',
+  },
+
+  // 🔹 Loading and Error styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: hp('2%'),
+    fontSize: hp('2%'),
+    color: '#666',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: wp('5%'),
+  },
+  errorText: {
+    fontSize: hp('2%'),
+    color: '#ff0000',
+    textAlign: 'center',
+    marginBottom: hp('2%'),
+  },
+  retryButton: {
+    backgroundColor: '#1d9b20',
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1.5%'),
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: hp('1.8%'),
     fontWeight: 'bold',
   },
 });
