@@ -17,6 +17,7 @@ import {
   GestureResponderEvent,
   Keyboard,
   TouchableWithoutFeedback,
+  ActivityIndicator,
 } from 'react-native';
 import Header from '../../Components/Header';
 import {
@@ -25,6 +26,7 @@ import {
 } from 'react-native-responsive-screen';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { useNavigation } from '@react-navigation/native';
+import { useSelector } from 'react-redux';
 import EditBtn from '../../Components/EditBtn';
 import Slider from '@react-native-community/slider';
 import { Camera, useCameraDevice } from 'react-native-vision-camera';
@@ -32,47 +34,116 @@ import Svg, { Path, Rect, Text as SvgText } from 'react-native-svg';
 import MultilineInput from '../../Components/MultilineInput';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useDesignStore, DesignFormData } from '../../Store/designStore';
+import { useProjectStore } from '../../Store/useProjectStore';
+import { baseUrl } from '../../utils/Api';
+
+// API Service function
+const fetchUnitCompletionData = async (
+  projectId: string,
+  stepId: string,
+  buildingId: string,
+  levelId: string,
+  unitName: string,
+  bearerToken: string
+) => {
+  try {
+    console.log('🔍 API Call URL:', `${baseUrl}/reports/overall_completion/unit_wise?project_id=${projectId}&step_type=${stepId}&building=${buildingId}&level=${levelId}&unit_name=${unitName}`);
+    
+    const response = await fetch(
+      `${baseUrl}/reports/overall_completion/unit_wise?project_id=${projectId}&step_type=${stepId}&building=${buildingId}&level=${levelId}&unit_name=${unitName}`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${bearerToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    console.log('📡 API Response Status:', response.status);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    console.log('🔍 RAW API RESPONSE:', JSON.stringify(data, null, 2));
+    console.log('📊 API Response Structure:', {
+      hasData: !!data,
+      dataType: typeof data,
+      isArray: Array.isArray(data),
+      keys: data ? Object.keys(data) : 'No data'
+    });
+    
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching completion data:', error);
+    throw error;
+  }
+};
 
 export default function UnitTask() {
   const navigation = useNavigation();
-  type TaskItem = { id: string; title: string; date: string; progress: number };
+  
+  // ✅ Get data from Zustand store
+  const {
+    selectedProjectId: projectId,
+    selectedStepId: stepId,
+    selectedBuildingId: buildingId,
+    selectedLevelId: levelId,
+    selectedUnitName: unitName,
+  } = useProjectStore();
+  
+  // ✅ Get token from Redux store
+  const token = useSelector(state => state.auth.token);
+
+  console.log('🚀 UnitTask Component - Initial Data:', {
+    projectId,
+    stepId,
+    buildingId,
+    levelId,
+    unitName,
+    hasToken: !!token
+  });
+
+  type TaskItem = { 
+    id: string; 
+    title: string; 
+    date: string; 
+    progress: number;
+    completion_value?: number; 
+  };
+
   const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [isEditTextModalVisible, setIsEditTextModalVisible] =
-    useState<boolean>(false);
+  const [isEditTextModalVisible, setIsEditTextModalVisible] = useState<boolean>(false);
   const [isCameraVisible, setIsCameraVisible] = useState<boolean>(false);
   const [selectedItem, setSelectedItem] = useState<TaskItem | null>(null);
   const [cameraDevice, setCameraDevice] = useState<'back' | 'front'>('back');
-  const [capturedPhotoPath, setCapturedPhotoPath] = useState<string | null>(
-    null,
-  );
+  const [capturedPhotoPath, setCapturedPhotoPath] = useState<string | null>(null);
   const [photoTimestamp, setPhotoTimestamp] = useState<string | null>(null);
   const [isDrawingVisible, setIsDrawingVisible] = useState(false);
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [strokeColor, setStrokeColor] = useState<string>('#ff0000');
   const [strokeWidth] = useState<number>(4);
-  const [selectedImages, setSelectedImages] = useState<
-    Array<{ uri: string; fileName: string }>
-  >([]);
+  const [selectedImages, setSelectedImages] = useState<Array<{ uri: string; fileName: string }>>([]);
   const [isTextMode, setIsTextMode] = useState(false);
   const [textInput, setTextInput] = useState('');
-  const [textElements, setTextElements] = useState<
-    Array<{ id: string; text: string; x: number; y: number; color: string }>
-  >([]);
-  const [currentTextPosition, setCurrentTextPosition] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
+  const [textElements, setTextElements] = useState<Array<{ id: string; text: string; x: number; y: number; color: string }>>([]);
+  const [currentTextPosition, setCurrentTextPosition] = useState<{ x: number; y: number } | null>(null);
   const [showTextInputModal, setShowTextInputModal] = useState(false);
 
+  // New states for API loading and completion data
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [completionData, setCompletionData] = useState<any>(null);
+  const [overallCompletion, setOverallCompletion] = useState<number>(0);
+
   // New states for detail modal
-  const [isDetailModalVisible, setIsDetailModalVisible] =
-    useState<boolean>(false);
-  const [selectedFormData, setSelectedFormData] =
-    useState<DesignFormData | null>(null);
+  const [isDetailModalVisible, setIsDetailModalVisible] = useState<boolean>(false);
+  const [selectedFormData, setSelectedFormData] = useState<DesignFormData | null>(null);
 
   // New state for image detail modal
-  const [isImageDetailModalVisible, setIsImageDetailModalVisible] =
-    useState<boolean>(false);
+  const [isImageDetailModalVisible, setIsImageDetailModalVisible] = useState<boolean>(false);
   const [selectedImageData, setSelectedImageData] = useState<{
     image: { uri: string; fileName: string } | null;
     capturedPhoto: string | null;
@@ -84,8 +155,7 @@ export default function UnitTask() {
   });
 
   // Zustand store
-  const { designForms, addDesignForm, updateDesignForm, getFormByTaskId } =
-    useDesignStore();
+  const { designForms, addDesignForm, updateDesignForm, getFormByTaskId } = useDesignStore();
 
   const cameraRef = useRef<Camera>(null);
   const drawingStageRef = useRef<View>(null);
@@ -99,6 +169,99 @@ export default function UnitTask() {
   };
   const [paths, setPaths] = useState<DrawPath[]>([]);
   const [currentPath, setCurrentPath] = useState<DrawPath | null>(null);
+
+  // ✅ Fetch completion data when component mounts or dependencies change
+  useEffect(() => {
+    console.log('🚀 Component mounted with params:', {
+      projectId,
+      stepId, 
+      buildingId,
+      levelId,
+      unitName,
+      hasToken: !!token
+    });
+
+    if (projectId && stepId && buildingId && levelId && unitName && token) {
+      fetchCompletionData();
+    } else {
+      console.log('❌ Missing required parameters for API call:', {
+        projectId: !!projectId,
+        stepId: !!stepId,
+        buildingId: !!buildingId,
+        levelId: !!levelId,
+        unitName: !!unitName,
+        token: !!token
+      });
+    }
+  }, [projectId, stepId, buildingId, levelId, unitName, token]);
+
+  const fetchCompletionData = async () => {
+    try {
+      setIsLoading(true);
+      console.log('🔄 Fetching completion data with params:', {
+        projectId,
+        stepId,
+        buildingId,
+        levelId,
+        unitName,
+        token: token ? 'Token available' : 'No token'
+      });
+
+      const data = await fetchUnitCompletionData(
+        projectId,
+        stepId,
+        buildingId,
+        levelId,
+        unitName,
+        token
+      );
+
+      console.log('✅ Completion data received - STRUCTURE:', {
+        hasData: !!data,
+        dataType: typeof data,
+        isArray: Array.isArray(data),
+        keys: data ? Object.keys(data) : 'No data'
+      });
+
+      // ✅ Process the API data and update tasks
+      if (data && data.tasks) {
+        console.log('📊 Tasks data found:', {
+          tasksCount: data.tasks.length,
+          tasksSample: data.tasks.slice(0, 2) // First 2 tasks dikhayein
+        });
+
+        const updatedData = data.tasks.map((task: any) => ({
+          id: task.task_id || task.id,
+          title: task.task_name || task.title,
+          date: task.date || 'N/A',
+          progress: task.completion_value || 0,
+          completion_value: task.completion_value || 0,
+        }));
+        
+        setData(updatedData);
+        
+        // ✅ Check if API response has overall_completion field directly
+        if (data.overall_completion !== undefined) {
+          console.log('🎯 API se direct overall_completion mila:', data.overall_completion);
+          setOverallCompletion(parseFloat(data.overall_completion));
+        } else if (data.overall_completion_percentage !== undefined) {
+          console.log('🎯 API se overall_completion_percentage mila:', data.overall_completion_percentage);
+          setOverallCompletion(parseFloat(data.overall_completion_percentage));
+        } else {
+          console.log('⚠️ API response mein direct overall_completion nahi mila, tasks se calculate karna hoga');
+        }
+
+      } else {
+        console.log('⚠️ No tasks data found in API response');
+      }
+
+    } catch (error) {
+      console.error('❌ Error fetching completion data:', error);
+      Alert.alert('Error', 'Failed to fetch completion data. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const getFileName = (fullPath: string) => {
     const parts = fullPath.split(/[\\\/]/);
@@ -196,6 +359,7 @@ export default function UnitTask() {
     return `${selectedItem.title} — ${formatTimestamp(new Date())}`;
   }, [selectedItem, isCameraVisible]);
 
+  // Initial data - will be replaced by API data
   const [data, setData] = useState<TaskItem[]>([
     {
       id: '1',
@@ -361,11 +525,10 @@ export default function UnitTask() {
     }
   };
 
-  const overallProgress = useMemo(() => {
-    if (data.length === 0) return 0;
-    const total = data.reduce((sum, t) => sum + t.progress, 0);
-    return (total / data.length).toFixed(1);
-  }, [data]);
+  // ✅ Console mein overall completion value show karo
+  useEffect(() => {
+    console.log('🎯 OVERALL COMPLETION VALUE:', overallCompletion + '%');
+  }, [overallCompletion]);
 
   // Function to handle multiple image selection
   const handleDocumentIconPress = () => {
@@ -605,6 +768,14 @@ export default function UnitTask() {
     const existingForm = getFormByTaskId(item.id);
     const hasSubmittedData = Boolean(existingForm);
 
+    // ✅ Har task ka data console mein dikhayein
+    console.log(`📋 Task ${item.id}:`, {
+      title: item.title,
+      progress: item.progress,
+      completion_value: item.completion_value,
+      hasSubmittedData
+    });
+
     return (
       <View style={styles.itemContainer}>
         <View style={styles.itemRow}>
@@ -652,13 +823,15 @@ export default function UnitTask() {
             )}
           </View>
         </View>
-        <Text style={styles.progressText}>{item.progress}%</Text>
+        <Text style={styles.progressText}>
+          {item.completion_value !== undefined ? item.completion_value : item.progress}%
+        </Text>
         <AnySlider
-          value={item.progress}
+          value={item.completion_value !== undefined ? item.completion_value : item.progress}
           minimumValue={0}
           maximumValue={100}
           disabled={!isEditing}
-          minimumTrackTintColor={getProgressBarColor(item.progress)}
+          minimumTrackTintColor={getProgressBarColor(item.completion_value !== undefined ? item.completion_value : item.progress)}
           maximumTrackTintColor="#e0e0e0"
           thumbTintColor="#CFCFCF"
           style={[
@@ -1542,6 +1715,14 @@ export default function UnitTask() {
 
         <Text style={styles.subtitle}>Core 1- Level 0 - Unit G19</Text>
 
+        {/* Loading Indicator */}
+        {isLoading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#1d9b20" />
+            <Text style={styles.loadingText}>Fetching completion data...</Text>
+          </View>
+        )}
+
         <View style={styles.completionHeader}>
           <Text style={styles.completionLabel}>Completion</Text>
           <EditBtn
@@ -1552,7 +1733,15 @@ export default function UnitTask() {
             }
           />
         </View>
-        <Text style={styles.completionPercentage}>77.84%</Text>
+        
+        {/* ✅ Sirf overallCompletion ki value display karo */}
+        <Text style={styles.completionPercentage}>
+          {overallCompletion}%
+        </Text>
+        
+        {/* ✅ Console mein sirf overallCompletion value show karo */}
+        {console.log('🎯 OVERALL COMPLETION VALUE FROM API:', overallCompletion + '%')}
+        
         <View style={{ flexDirection: 'row', justifyContent: 'space-between'}}>
           <Text style={styles.sectionTitle}>1. Finishes</Text>
 
@@ -1634,6 +1823,19 @@ const styles = StyleSheet.create({
     fontSize: hp('2%'),
     color: '#1d9b20',
     fontFamily: 'Poppins-BoldItalic',
+  },
+  // New loading styles
+  loadingContainer: {
+    alignItems: 'center',
+    padding: hp('2%'),
+    backgroundColor: '#f0f9f0',
+    borderRadius: wp('2%'),
+    marginVertical: hp('1%'),
+  },
+  loadingText: {
+    marginTop: hp('1%'),
+    fontSize: hp('1.6%'),
+    color: '#1d9b20',
   },
   completionHeader: {
     flexDirection: 'row',
