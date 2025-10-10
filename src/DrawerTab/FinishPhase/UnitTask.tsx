@@ -35,9 +35,10 @@ import MultilineInput from '../../Components/MultilineInput';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useDesignStore, DesignFormData } from '../../Store/designStore';
 import { useProjectStore } from '../../Store/useProjectStore';
+import { useFinishesIdsStore } from '../../Store/finishesIds';
 import { baseUrl } from '../../utils/Api';
 
-// API Service function
+// API Service functions
 const fetchUnitCompletionData = async (
   projectId: string,
   stepId: string,
@@ -47,7 +48,7 @@ const fetchUnitCompletionData = async (
   bearerToken: string
 ) => {
   try {
-    console.log('🔍 API Call URL:', `${baseUrl}/reports/overall_completion/unit_wise?project_id=${projectId}&step_type=${stepId}&building=${buildingId}&level=${levelId}&unit_name=${unitName}`);
+    console.log('🔍 Completion API Call URL:', `${baseUrl}/reports/overall_completion/unit_wise?project_id=${projectId}&step_type=${stepId}&building=${buildingId}&level=${levelId}&unit_name=${unitName}`);
     
     const response = await fetch(
       `${baseUrl}/reports/overall_completion/unit_wise?project_id=${projectId}&step_type=${stepId}&building=${buildingId}&level=${levelId}&unit_name=${unitName}`,
@@ -60,7 +61,7 @@ const fetchUnitCompletionData = async (
       }
     );
 
-    console.log('📡 API Response Status:', response.status);
+    console.log('📡 Completion API Response Status:', response.status);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -68,13 +69,7 @@ const fetchUnitCompletionData = async (
 
     const data = await response.json();
     
-    console.log('🔍 RAW API RESPONSE:', JSON.stringify(data, null, 2));
-    console.log('📊 API Response Structure:', {
-      hasData: !!data,
-      dataType: typeof data,
-      isArray: Array.isArray(data),
-      keys: data ? Object.keys(data) : 'No data'
-    });
+    console.log('🔍 RAW COMPLETION API RESPONSE:', JSON.stringify(data, null, 2));
     
     return data;
   } catch (error) {
@@ -83,10 +78,90 @@ const fetchUnitCompletionData = async (
   }
 };
 
+// New API function for tasks data
+const fetchTasksData = async (
+  projectId: string,
+  stepId: string,
+  buildingId: string,
+  levelId: string,
+  unitName: string,
+  bearerToken: string
+) => {
+  try {
+    console.log('🔍 Tasks API Call URL:', `${baseUrl}/projects/unit_wise/${projectId}?step_type=${stepId}&building=${buildingId}&level=${levelId}&unit_name=${unitName}`);
+    
+    const response = await fetch(
+      `${baseUrl}/projects/unit_wise/${projectId}?step_type=${stepId}&building=${buildingId}&level=${levelId}&unit_name=${unitName}`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${bearerToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    console.log('📡 Tasks API Response Status:', response.status);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    console.log('🔍 RAW TASKS API RESPONSE:', JSON.stringify(data, null, 2));
+    
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching tasks data:', error);
+    throw error;
+  }
+};
+
+// ✅ NEW: PATCH API function for updating progress
+const updateTaskProgress = async (
+  projectId: string,
+  requestData: any,
+  bearerToken: string
+) => {
+  try {
+    console.log('🔄 PATCH API Call URL:', `${baseUrl}/projects/action-finishes-step2?id=${projectId}`);
+    console.log('📦 PATCH API Request Data:', JSON.stringify(requestData, null, 2));
+
+    const response = await fetch(
+      `${baseUrl}/projects/action-finishes-step2?id=${projectId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${bearerToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData),
+      }
+    );
+
+    console.log('📡 PATCH API Response Status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ PATCH API Error Response:', errorText);
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ PATCH API Success Response:', JSON.stringify(data, null, 2));
+    
+    return data;
+  } catch (error) {
+    console.error('❌ Error updating task progress:', error);
+    throw error;
+  }
+};
+
 export default function UnitTask() {
   const navigation = useNavigation();
   
-  // ✅ Get data from Zustand store
+  // ✅ Get data from Zustand stores
   const {
     selectedProjectId: projectId,
     selectedStepId: stepId,
@@ -94,6 +169,9 @@ export default function UnitTask() {
     selectedLevelId: levelId,
     selectedUnitName: unitName,
   } = useProjectStore();
+  
+  // ✅ Get finishes IDs store
+  const { setFinishesIds, getProgressId, getTaskId } = useFinishesIdsStore();
   
   // ✅ Get token from Redux store
   const token = useSelector(state => state.auth.token);
@@ -112,7 +190,12 @@ export default function UnitTask() {
     title: string; 
     date: string; 
     progress: number;
-    completion_value?: number; 
+    completion_value?: number;
+    hold: boolean;
+    step_id?: string;
+    progress_id?: string;
+    task_id?: string;
+    type?: string; // ✅ NEW: Add type field
   };
 
   const [isEditing, setIsEditing] = useState<boolean>(false);
@@ -133,10 +216,15 @@ export default function UnitTask() {
   const [currentTextPosition, setCurrentTextPosition] = useState<{ x: number; y: number } | null>(null);
   const [showTextInputModal, setShowTextInputModal] = useState(false);
 
-  // New states for API loading and completion data
+  // New states for API loading and data
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isTasksLoading, setIsTasksLoading] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false); // ✅ NEW: Saving state
   const [completionData, setCompletionData] = useState<any>(null);
+  const [tasksData, setTasksData] = useState<any>(null);
   const [overallCompletion, setOverallCompletion] = useState<number>(0);
+  const [categoryName, setCategoryName] = useState<string>('Finishes');
+  const [hasHoldPoint, setHasHoldPoint] = useState<boolean>(false);
 
   // New states for detail modal
   const [isDetailModalVisible, setIsDetailModalVisible] = useState<boolean>(false);
@@ -154,7 +242,7 @@ export default function UnitTask() {
     formData: null,
   });
 
-  // Zustand store
+  // Zustand stores
   const { designForms, addDesignForm, updateDesignForm, getFormByTaskId } = useDesignStore();
 
   const cameraRef = useRef<Camera>(null);
@@ -170,6 +258,55 @@ export default function UnitTask() {
   const [paths, setPaths] = useState<DrawPath[]>([]);
   const [currentPath, setCurrentPath] = useState<DrawPath | null>(null);
 
+  // Initial data - will be replaced by API data
+  const [data, setData] = useState<TaskItem[]>([
+    {
+      id: '1',
+      title: '1.1 Waterproof (Int)',
+      date: '09/12/24',
+      progress: 0,
+      hold: false,
+    },
+    {
+      id: '2',
+      title: '1.2  Waterproof (Ext.)',
+      date: '31/12/24',
+      progress: 25,
+      hold: false,
+    },
+    {
+      id: '3',
+      title: '1.3  Bed and Bath/Balconies',
+      date: '01/01/25',
+      progress: 50,
+      hold: false,
+    },
+    {
+      id: '4',
+      title: '1.4 Tiles - Bath/ Laun',
+      date: '01/01/25',
+      progress: 75,
+      hold: false,
+    },
+    {
+      id: '5',
+      title: '1.5 Tile Balconies',
+      date: '01/01/25',
+      progress: 100,
+      hold: false,
+    },
+  ]);
+
+  const [modalForm, setModalForm] = useState<{
+    details: string;
+    comments: string;
+    links: string;
+  }>({
+    details: '',
+    comments: '',
+    links: '',
+  });
+
   // ✅ Fetch completion data when component mounts or dependencies change
   useEffect(() => {
     console.log('🚀 Component mounted with params:', {
@@ -183,6 +320,7 @@ export default function UnitTask() {
 
     if (projectId && stepId && buildingId && levelId && unitName && token) {
       fetchCompletionData();
+      fetchTasksDataFromAPI();
     } else {
       console.log('❌ Missing required parameters for API call:', {
         projectId: !!projectId,
@@ -203,8 +341,7 @@ export default function UnitTask() {
         stepId,
         buildingId,
         levelId,
-        unitName,
-        token: token ? 'Token available' : 'No token'
+        unitName
       });
 
       const data = await fetchUnitCompletionData(
@@ -227,7 +364,7 @@ export default function UnitTask() {
       if (data && data.tasks) {
         console.log('📊 Tasks data found:', {
           tasksCount: data.tasks.length,
-          tasksSample: data.tasks.slice(0, 2) // First 2 tasks dikhayein
+          tasksSample: data.tasks.slice(0, 2)
         });
 
         const updatedData = data.tasks.map((task: any) => ({
@@ -236,11 +373,12 @@ export default function UnitTask() {
           date: task.date || 'N/A',
           progress: task.completion_value || 0,
           completion_value: task.completion_value || 0,
+          hold: task.hold || false,
         }));
         
         setData(updatedData);
         
-        // ✅ Check if API response has overall_completion field directly
+        // ✅ Check if API response has overall_completion field
         if (data.overall_completion !== undefined) {
           console.log('🎯 API se direct overall_completion mila:', data.overall_completion);
           setOverallCompletion(parseFloat(data.overall_completion));
@@ -260,6 +398,161 @@ export default function UnitTask() {
       Alert.alert('Error', 'Failed to fetch completion data. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // ✅ New function to fetch tasks data
+  const fetchTasksDataFromAPI = async () => {
+    try {
+      setIsTasksLoading(true);
+      console.log('🔄 Fetching tasks data with params:', {
+        projectId,
+        stepId,
+        buildingId,
+        levelId,
+        unitName
+      });
+
+      const data = await fetchTasksData(
+        projectId,
+        stepId,
+        buildingId,
+        levelId,
+        unitName,
+        token
+      );
+
+      console.log('✅ Tasks data received - STRUCTURE:', {
+        hasData: !!data,
+        dataType: typeof data,
+        isArray: Array.isArray(data),
+        keys: data ? Object.keys(data) : 'No data'
+      });
+
+      if (data && data.data && data.data.length > 0) {
+        const finishesData = data.data[0];
+        console.log('📊 Finishes data found:', {
+          stepId: finishesData.step_id,
+          name: finishesData.name,
+          tasksCount: finishesData.tasks?.length || 0
+        });
+
+        // ✅ Set category name from API
+        if (finishesData.name) {
+          setCategoryName(finishesData.name);
+        }
+
+        // ✅ Process tasks and save IDs to store
+        if (finishesData.tasks && finishesData.tasks.length > 0) {
+          const progressIds: Record<string, string> = {};
+          const taskIds: Record<string, string> = {};
+          let hasHold = false;
+
+          const tasksWithIds = finishesData.tasks.map((task: any) => {
+            // Check if any task has hold true
+            if (task.hold) {
+              hasHold = true;
+            }
+
+            // Save IDs to store
+            if (task._id && task.progress_all && task.progress_all.length > 0) {
+              progressIds[task._id] = task.progress_all[0]._id;
+            }
+            if (task.name && task._id) {
+              taskIds[task.name] = task._id;
+            }
+
+            return {
+              id: task._id,
+              title: task.name,
+              date: task.progress_all && task.progress_all.length > 0 ? 
+                    task.progress_all[0].completion_string_date || 'N/A' : 'N/A',
+              progress: task.progress_all && task.progress_all.length > 0 ? 
+                       task.progress_all[0].progress || 0 : 0,
+              hold: task.hold || false,
+              step_id: finishesData.step_id,
+              progress_id: task.progress_all && task.progress_all.length > 0 ? 
+                          task.progress_all[0]._id : null,
+              task_id: task._id,
+              type: task.type || 'task' // ✅ NEW: Get type from API response
+            };
+          });
+
+          // ✅ Set hold point status
+          setHasHoldPoint(hasHold);
+
+          // ✅ Save IDs to Zustand store
+          setFinishesIds(finishesData.step_id, progressIds, taskIds);
+          
+          // ✅ Update the tasks data
+          setData(tasksWithIds);
+          setTasksData(finishesData);
+
+          console.log('💾 Saved to FinishesIds Store:', {
+            stepId: finishesData.step_id,
+            progressIdsCount: Object.keys(progressIds).length,
+            taskIdsCount: Object.keys(taskIds).length,
+            hasHoldPoint: hasHold
+          });
+        }
+      } else {
+        console.log('⚠️ No tasks data found in API response');
+      }
+
+    } catch (error) {
+      console.error('❌ Error fetching tasks data:', error);
+      Alert.alert('Error', 'Failed to fetch tasks data. Please try again.');
+    } finally {
+      setIsTasksLoading(false);
+    }
+  };
+
+  // ✅ NEW: Function to handle save changes and call PATCH API
+  const handleSaveChanges = async () => {
+    try {
+      setIsSaving(true);
+      
+      console.log('💾 Saving changes for project:', projectId);
+      console.log('📊 Current data to save:', data);
+
+      // Prepare all tasks data for API
+      const updatePromises = data.map(async (task) => {
+        // Get form data for this task
+        const formData = getFormByTaskId(task.id);
+        
+        // Prepare request data according to API structure
+        const requestData = {
+          step_id: task.step_id || stepId, // Use task step_id or fallback to global stepId
+          task_id: task.task_id || task.id, // Use task_id or fallback to id
+          progress_id: task.progress_id || getProgressId(task.id), // Get from store
+          type: task.type || 'task', // Get type from task data
+          comment: formData?.comments || '', // Get comments from form data
+          progress: task.completion_value !== undefined ? task.completion_value : task.progress, // Use completion_value or progress
+          images: formData?.images?.map(img => img.uri) || [], // Get image URIs
+          links: formData?.links || '', // Get links from form data
+        };
+
+        console.log(`📤 Sending data for task ${task.title}:`, requestData);
+
+        // Call PATCH API for each task
+        return updateTaskProgress(projectId, requestData, token);
+      });
+
+      // Wait for all API calls to complete
+      const results = await Promise.all(updatePromises);
+      
+      console.log('✅ All tasks updated successfully:', results);
+      
+      // Exit editing mode
+      setIsEditing(false);
+      
+      Alert.alert('Success', 'All changes have been saved successfully!');
+      
+    } catch (error) {
+      console.error('❌ Error saving changes:', error);
+      Alert.alert('Error', 'Failed to save changes. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -358,52 +651,6 @@ export default function UnitTask() {
     if (!selectedItem) return '';
     return `${selectedItem.title} — ${formatTimestamp(new Date())}`;
   }, [selectedItem, isCameraVisible]);
-
-  // Initial data - will be replaced by API data
-  const [data, setData] = useState<TaskItem[]>([
-    {
-      id: '1',
-      title: '1.1 Waterproof (Int)',
-      date: '09/12/24',
-      progress: 0,
-    },
-    {
-      id: '2',
-      title: '1.2  Waterproof (Ext.)',
-      date: '31/12/24',
-      progress: 25,
-    },
-    {
-      id: '3',
-      title: '1.3  Bed and Bath/Balconies',
-      date: '01/01/25',
-      progress: 50,
-    },
-    {
-      id: '4',
-      title: '1.4 Tiles - Bath/ Laun',
-      date: '01/01/25',
-      progress: 75,
-    },
-    {
-      id: '5',
-      title: '1.5 Tile Balconies',
-      date: '01/01/25',
-      progress: 100,
-    },
-  ]);
-
-  const [modalForm, setModalForm] = useState<{
-    details: string;
-    comments: string;
-    links: string;
-  }>({
-    details: '',
-    comments: '',
-    links: '',
-  });
-
-  const handleSaveChanges = () => setIsEditing(false);
 
   const handleProgressChange = (itemId: string, newValue: number) => {
     const updatedData = data.map(item =>
@@ -538,7 +785,7 @@ export default function UnitTask() {
       maxHeight: 2000,
       maxWidth: 2000,
       quality: 0.8,
-      selectionLimit: 10, // Allow multiple selection
+      selectionLimit: 10,
       includeExtra: true,
     };
 
@@ -763,6 +1010,47 @@ export default function UnitTask() {
     );
   };
 
+  const handleTouchStart = (e: GestureResponderEvent) => {
+    if (!isDrawingMode || isTextMode) return;
+    const { locationX, locationY } = e.nativeEvent;
+    const newPath: DrawPath = {
+      id: `${Date.now()}`,
+      color: strokeColor,
+      width: strokeWidth,
+      points: [{ x: locationX, y: locationY }],
+    };
+    setCurrentPath(newPath);
+    setPaths(prev => [...prev, newPath]);
+  };
+
+  const handleTouchMove = (e: GestureResponderEvent) => {
+    if (!currentPath || !isDrawingMode || isTextMode) return;
+    const { locationX, locationY } = e.nativeEvent;
+    setPaths(prev => {
+      const updated = [...prev];
+      const idx = updated.findIndex(p => p.id === currentPath.id);
+      if (idx !== -1) {
+        updated[idx] = {
+          ...updated[idx],
+          points: [...updated[idx].points, { x: locationX, y: locationY }],
+        };
+      }
+      return updated;
+    });
+  };
+
+  const handleTouchEnd = () => {
+    setCurrentPath(null);
+  };
+
+  const buildSvgPathD = (pts: { x: number; y: number }[]) => {
+    if (pts.length === 0) return '';
+    const [first, ...rest] = pts;
+    const move = `M ${first.x} ${first.y}`;
+    const lines = rest.map(p => `L ${p.x} ${p.y}`).join(' ');
+    return `${move} ${lines}`;
+  };
+
   const renderItem = ({ item }: { item: TaskItem }) => {
     const isItemEditable = isEditing;
     const existingForm = getFormByTaskId(item.id);
@@ -773,7 +1061,12 @@ export default function UnitTask() {
       title: item.title,
       progress: item.progress,
       completion_value: item.completion_value,
-      hasSubmittedData
+      hold: item.hold,
+      hasSubmittedData,
+      step_id: item.step_id,
+      progress_id: item.progress_id,
+      task_id: item.task_id,
+      type: item.type // ✅ NEW: Log type
     });
 
     return (
@@ -844,47 +1137,6 @@ export default function UnitTask() {
         />
       </View>
     );
-  };
-
-  const handleTouchStart = (e: GestureResponderEvent) => {
-    if (!isDrawingMode || isTextMode) return;
-    const { locationX, locationY } = e.nativeEvent;
-    const newPath: DrawPath = {
-      id: `${Date.now()}`,
-      color: strokeColor,
-      width: strokeWidth,
-      points: [{ x: locationX, y: locationY }],
-    };
-    setCurrentPath(newPath);
-    setPaths(prev => [...prev, newPath]);
-  };
-
-  const handleTouchMove = (e: GestureResponderEvent) => {
-    if (!currentPath || !isDrawingMode || isTextMode) return;
-    const { locationX, locationY } = e.nativeEvent;
-    setPaths(prev => {
-      const updated = [...prev];
-      const idx = updated.findIndex(p => p.id === currentPath.id);
-      if (idx !== -1) {
-        updated[idx] = {
-          ...updated[idx],
-          points: [...updated[idx].points, { x: locationX, y: locationY }],
-        };
-      }
-      return updated;
-    });
-  };
-
-  const handleTouchEnd = () => {
-    setCurrentPath(null);
-  };
-
-  const buildSvgPathD = (pts: { x: number; y: number }[]) => {
-    if (pts.length === 0) return '';
-    const [first, ...rest] = pts;
-    const move = `M ${first.x} ${first.y}`;
-    const lines = rest.map(p => `L ${p.x} ${p.y}`).join(' ');
-    return `${move} ${lines}`;
   };
 
   // Camera Modal
@@ -1545,17 +1797,6 @@ export default function UnitTask() {
                 >
                   <Text style={styles.closeButtonText}>Close</Text>
                 </TouchableOpacity>
-
-                {/* Download All Data Button - Only show when there's submitted data */}
-                {/* {selectedFormData && (
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.downloadAllButton]}
-                    onPress={() => handleDownloadAllData(selectedFormData)}
-                  >
-                    <Ionicons name="download-outline" size={hp('2%')} color="#fff" />
-                    <Text style={styles.downloadAllButtonText}>Download All Data</Text>
-                  </TouchableOpacity>
-                )} */}
               </View>
             </View>
           </KeyboardAvoidingView>
@@ -1563,6 +1804,7 @@ export default function UnitTask() {
       </Modal>
     );
   };
+
   const ImageDetailModal = () => {
     const { image, capturedPhoto, formData } = selectedImageData;
 
@@ -1715,22 +1957,26 @@ export default function UnitTask() {
 
         <Text style={styles.subtitle}>Core 1- Level 0 - Unit G19</Text>
 
-        {/* Loading Indicator */}
-        {isLoading && (
+        {/* Loading Indicators */}
+        {(isLoading || isTasksLoading || isSaving) && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#1d9b20" />
-            <Text style={styles.loadingText}>Fetching completion data...</Text>
+            <Text style={styles.loadingText}>
+              {isSaving ? 'Saving changes...' : 
+               isTasksLoading ? 'Fetching tasks data...' : 'Fetching completion data...'}
+            </Text>
           </View>
         )}
 
         <View style={styles.completionHeader}>
           <Text style={styles.completionLabel}>Completion</Text>
           <EditBtn
-            title={isEditing ? 'Save Changes' : 'Edit Tasks'}
+            title={isEditing ? (isSaving ? 'Saving...' : 'Save Changes') : 'Edit Tasks'}
             bgColor="#1d9b20"
             onPress={() =>
               isEditing ? handleSaveChanges() : setIsEditing(true)
             }
+            disabled={isSaving} // ✅ NEW: Disable button when saving
           />
         </View>
         
@@ -1743,7 +1989,8 @@ export default function UnitTask() {
         {console.log('🎯 OVERALL COMPLETION VALUE FROM API:', overallCompletion + '%')}
         
         <View style={{ flexDirection: 'row', justifyContent: 'space-between'}}>
-          <Text style={styles.sectionTitle}>1. Finishes</Text>
+          {/* ✅ Use category name from API */}
+          <Text style={styles.sectionTitle}>1. {categoryName}</Text>
 
           <View
             style={{
@@ -1769,10 +2016,11 @@ export default function UnitTask() {
                 marginVertical: hp('1.5%'),
                 color: '#222',
                 fontFamily: 'Poppins-Light',
-                marginLeft: wp('2%'), // 👈 gap before "No"
+                marginLeft: wp('2%'),
               }}
             >
-              No
+              {/* ✅ Show hold point status from API data */}
+              {hasHoldPoint ? 'Yes' : 'No'}
             </Text>
           </View>
         </View>

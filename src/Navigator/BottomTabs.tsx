@@ -8,6 +8,7 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native'; // یہ import شامل کریں
 import Ionicons from '@react-native-vector-icons/ionicons';
 import Home from '../HomeTab/Home';
 import Alert from '../HomeTab/Alert';
@@ -19,6 +20,7 @@ import {
 const Tab = createBottomTabNavigator();
 
 export default function BottomTab() {
+  const navigation = useNavigation(); // Navigation hook شامل کریں
   const [showModal, setShowModal] = useState(false);
   const [showAlertModal, setShowAlertModal] = useState(false);
   const [selectedTab, setSelectedTab] = useState('Home');
@@ -197,6 +199,7 @@ export default function BottomTab() {
                     onPress={() => {
                       console.log('OK button pressed');
                       setShowAlertModal(false);
+                      navigation.navigate('AllNotification');
                     }}
                   >
                     <Text style={styles.okButtonText}>OK</Text>
@@ -211,6 +214,7 @@ export default function BottomTab() {
   );
 }
 
+// Styles وہی رہیں گے
 const styles = StyleSheet.create({
   badge: {
     position: 'absolute',

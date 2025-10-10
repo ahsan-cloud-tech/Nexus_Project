@@ -249,7 +249,7 @@ export default function Home({navigation}) {
         console.log('==========================================');
         
         // Navigate to project details
-        navigation.navigate('ProjectDetails', { 
+        navigation.navigate('CurrentProjectsPhases', { 
           project: item,
           project_id: item.id
         });
